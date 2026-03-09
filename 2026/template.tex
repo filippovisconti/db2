@@ -1,0 +1,158 @@
+$passoptions.latex()$
+\documentclass[
+$for(babel-otherlangs)$
+  $babel-otherlangs$,
+$endfor$
+$if(babel-lang)$
+  $babel-lang$,
+$endif$
+$if(fontsize)$
+  $fontsize$,
+$endif$
+$if(papersize)$
+  $papersize$paper,
+$endif$
+$for(classoption)$
+  $classoption$$sep$,
+$endfor$
+]{$documentclass$}
+
+% -------------------------------------------------------------------
+% Core packages
+% -------------------------------------------------------------------
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools} % better math
+\usepackage{thmtools}  % flexible theorem styling
+\usepackage{listings}  % code snippets
+\usepackage{inconsolata} % nice monospace font for code
+
+$if(geometry)$
+\usepackage[$for(geometry)$$geometry$$sep$,$endfor$]{geometry}
+$else$
+\usepackage[a4paper,margin=1in]{geometry}
+$endif$
+
+$if(cancel)$
+\usepackage{cancel}
+$endif$
+
+% -------------------------------------------------------------------
+% Section numbering
+% -------------------------------------------------------------------
+$if(numbersections)$
+\setcounter{secnumdepth}{$if(secnumdepth)$$secnumdepth$$else$3$endif$}
+$else$
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+$endif$
+
+% -------------------------------------------------------------------
+% Fonts (Pandoc inserts font settings here if given)
+% -------------------------------------------------------------------
+$fonts.latex()$
+$font-settings.latex()$
+$common.latex()$
+
+% -------------------------------------------------------------------
+% Hyperlinks
+% -------------------------------------------------------------------
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=teal,
+  citecolor=magenta
+}
+$hypersetup.latex()$
+
+% -------------------------------------------------------------------
+% Theorem-like environments
+% -------------------------------------------------------------------
+\declaretheorem[style=definition,name=Definition]{definition}
+\declaretheorem[style=plain,name=Theorem]{theorem}
+\declaretheorem[style=remark,name=Remark]{remark}
+\declaretheorem[style=example,name=Example]{example}
+\numberwithin{equation}{section}
+
+% -------------------------------------------------------------------
+% Code listings style
+% -------------------------------------------------------------------
+\lstdefinestyle{csnotes}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{green!50!black}\itshape,
+  stringstyle=\color{orange},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=10pt,
+  frame=single,
+  rulecolor=\color{black!30},
+  breaklines=true,
+  tabsize=2,
+  showstringspaces=false,
+  captionpos=b
+}
+\lstset{style=csnotes}
+
+% -------------------------------------------------------------------
+% Title info
+% -------------------------------------------------------------------
+$if(title)$
+\title{$title$$if(thanks)$\thanks{$thanks$}$endif$}
+$endif$
+$if(subtitle)$
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{%
+  \apptocmd{\@title}{\par {\large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{$subtitle$}
+$endif$
+\author{$for(author)$$author$$sep$ \and $endfor$}
+\date{$date$}
+
+% -------------------------------------------------------------------
+\begin{document}
+$if(has-frontmatter)$
+\frontmatter
+$endif$
+$if(title)$
+\maketitle
+$if(abstract)$
+\begin{abstract}
+$abstract$
+\end{abstract}
+$endif$
+$endif$
+
+$for(include-before)$
+$include-before$
+$endfor$
+
+$if(toc)$
+\setcounter{tocdepth}{$toc-depth$}
+\tableofcontents
+$endif$
+
+$if(has-frontmatter)$
+\mainmatter
+$endif$
+
+$body$
+
+$if(has-frontmatter)$
+\backmatter
+$endif$
+
+$if(bibliography)$
+\bibliographystyle{plain}
+\bibliography{$for(bibliography)$$bibliography$$sep$,$endfor$}
+$endif$
+
+$for(include-after)$
+$include-after$
+$endfor$
+
+\end{document}
