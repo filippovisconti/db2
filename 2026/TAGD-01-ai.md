@@ -6,163 +6,283 @@ template:
   - template.tex
 ---
 
+# Organizzazione fisica e gestione delle interrogazioni
 
-# Organizzazione fisica e gestione del buffer
+L'architettura di un sistema di gestione di basi di dati (DBMS) è strutturata per gestire il flusso delle informazioni partendo dalle richieste ad alto livello fino alla memorizzazione fisica dei dati. Il processo ha inizio con il **Gestore delle interrogazioni**, che riceve istruzioni espresse in linguaggio SQL. Questo componente ha il compito di tradurre le query in operazioni eseguibili come la scansione delle tabelle, l'accesso diretto ai record o l'ordinamento dei dati. Una volta definito il piano d'azione, la richiesta passa al **Gestore dei metodi d'accesso**, il quale opera attraverso quella che viene definita lettura "virtuale". Questo livello a sua volta interagisce con il **Gestore del buffer**, che funge da intermediario per ottimizzare le prestazioni eseguendo letture fisiche attraverso il **Gestore della memoria secondaria**. Quest'ultimo è l'interfaccia finale che comunica direttamente con i dispositivi di **memoria secondaria**, dove i dati risiedono stabilmente.
 
-## Architettura di base di un DBMS
+Nell'analisi di un DBMS didattico come **SimpleDB**, è possibile osservare una scomposizione modulare ancora più dettagliata delle responsabilità:
 
-Un DBMS è organizzato come una **struttura a livelli**, in cui ogni componente ha il compito di gestire un aspetto specifico dell’esecuzione delle interrogazioni e dell’accesso ai dati.
+* **Remote**: agisce come interfaccia di comunicazione, ricevendo le richieste dal client e inoltrando il codice SQL al Planner.
+* **Planner**: è il modulo decisionale che interpella il Parser per ottenere un'analisi sintattica della query, determina il piano di esecuzione ottimale e lo trasmette al Query.
+* **Parser**: esegue l'analisi sintattica formale delle istruzioni ricevute.
+* **Query**: riceve il piano di esecuzione e coordina le chiamate al modulo Record per ogni tabella coinvolta nell'operazione.
+* **Metadata**: si occupa della gestione degli schemi delle tabelle, conservando le informazioni strutturali della base di dati.
+* **Record**: gestisce specificamente i blocchi di memoria destinati a contenere i record delle singole tabelle.
+* **Transaction**: garantisce l'integrità dei dati gestendo la concorrenza tra le diverse operazioni simultanee.
+* **Buffer**: mantiene in memoria principale le pagine di dati più utilizzate per limitare drasticamente la necessità di accessi costosi alla memoria secondaria.
+* **Log**: registra sistematicamente ogni operazione effettuata per garantire l'affidabilità e la possibilità di ripristino del sistema.
+* **File**: costituisce il livello più basso che si occupa della lettura e scrittura effettiva delle pagine sul disco fisico.
 
-Il livello più alto è il **gestore delle interrogazioni**, che riceve comandi SQL e li traduce in operazioni eseguibili dal sistema.
+La distinzione tra **memoria principale** e **memoria secondaria** è fondamentale per comprendere le prestazioni di un database. I programmi possono fare riferimento esclusivamente a dati presenti nella memoria principale. Tuttavia, le basi di dati devono necessariamente risiedere nella memoria secondaria per due ragioni critiche: le dimensioni, spesso superiori alla capacità della RAM, e la persistenza, ovvero la necessità che i dati sopravvivano allo spegnimento del sistema. Di conseguenza, ogni dato memorizzato su disco deve essere trasferito nella memoria principale per poter essere elaborato; questa dinamica di trasferimento è ciò che definisce i concetti di gerarchia di memoria.
 
-Per eseguire queste operazioni il sistema utilizza diversi componenti:
+I dispositivi di memoria secondaria sono organizzati fisicamente in **blocchi** di lunghezza fissa, solitamente nell'ordine di alcuni KB. Specularmente, nella memoria centrale viene allocata un'area della stessa dimensione chiamata **pagina**. Le operazioni fondamentali sui dispositivi si limitano alla lettura di un blocco dal disco verso una pagina e alla scrittura di una pagina su un blocco del disco. Nella pratica tecnica, i termini "blocco" e "pagina" sono spesso usati come sinonimi. Il sistema operativo assegna un numero univoco a ogni blocco del disco, garantendo che ogni unità di memorizzazione abbia un indirizzo univoco all'interno del sistema di elaborazione.
 
-* il **gestore dei metodi di accesso**, che implementa operazioni come scansione sequenziale, accesso diretto e ordinamento;
+Le prestazioni di un disco tradizionale (meccanico a rotazione) sono determinate da tre fattori temporali:
 
-* il **gestore del buffer**, che consente di leggere i dati in modo virtuale mantenendo in memoria le pagine più utili;
+1. **Tempo di posizionamento della testina (seek time)**: il tempo necessario per muovere la testina sulla traccia corretta, mediamente compreso tra 4ms e 15ms.
+2. **Tempo di latenza (rotational delay)**: il tempo necessario affinché il settore corretto ruoti sotto la testina, variabile tra 2ms e 8ms in base alla velocità di rotazione (da 4K a 15K giri al minuto).
+3. **Tempo di trasferimento di un blocco**: il tempo effettivo di passaggio dei dati, che rappresenta solo una frazione di millisecondo data la velocità di trasferimento tra 100 e 600MB/s. Complessivamente, un accesso richiede mediamente non meno di qualche millisecondo.
 
-* il **gestore della memoria secondaria**, che si occupa della lettura e scrittura fisica dei dati sul disco.
+Il costo di un accesso alla memoria secondaria è di quattro o più ordini di grandezza superiore rispetto alle operazioni in memoria centrale: parliamo di millisecondi contro decimi o centesimi di microsecondo. Per questo motivo, nelle applicazioni definite "I/O bound", il costo totale dipende quasi esclusivamente dal numero di accessi al disco. È importante notare che leggere un singolo bit o un intero blocco ha lo stesso costo temporale. Inoltre, l'accesso a blocchi contigui è meno oneroso, specialmente se il disco esegue il _prefetching_, ovvero la lettura anticipata di intere tracce memorizzate in una cache interna.
 
-In sostanza, l’esecuzione di una query segue questo flusso:
+Le **Unità a Stato Solido (SSD)** introducono caratteristiche differenti: essendo prive di parti meccaniche, offrono un accesso diretto a costo uniforme, risultando molto più veloci dei dischi tradizionali per gli accessi casuali. Tuttavia, il loro costo per gigabyte è ancora superiore e le prestazioni in scrittura tendono a peggiorare nel tempo poiché il numero di riscritture è limitato e il sistema deve distribuire i dati in posizioni diverse per preservare l'integrità delle celle. Nonostante la velocità superiore, l'accesso a un SSD resta comunque di vari ordini di grandezza più lento della RAM (decine o centinaia di microsecondi contro decimi o centesimi di microsecondo).
 
-1. il sistema riceve una query SQL,
+Il **File System** del sistema operativo gestisce la memoria secondaria tipicamente su due livelli:
 
-2. la query viene analizzata e trasformata in un piano di esecuzione,
+* **Livello basso**: fornisce primitive per agire sui blocchi (leggi/scrivi un blocco in una pagina, alloca/dealloca blocchi contigui).
+* **Livello alto**: gestisce i file come sequenze di caratteri o oggetti dotati di nome, struttura e una posizione corrente, offrendo primitive come il posizionamento (_seek_) e la lettura/scrittura in posizioni specifiche.
 
-3. il piano utilizza metodi di accesso ai dati,
+Un DBMS può interagire con il file system in diversi modi:
 
-4. i dati vengono recuperati tramite il buffer manager,
+* **A livello di blocchi**: garantisce un controllo completo sul posizionamento fisico, permettendo di distribuire oggetti su più dispositivi. Lo svantaggio è l'estrema complessità amministrativa e la necessità di avere dischi dedicati esclusivamente al DBMS.
+* **A livello di file**: è più semplice da realizzare (un file per ogni tabella), ma il DBMS perde la visibilità sulla reale allocazione dei blocchi e sul buffer, con un impatto negativo sulle prestazioni.
+* **Soluzione intermedia**: è l'approccio più frequente. Il DBMS usa il file system in modo limitato per creare/eliminare file e gestire flussi di blocchi, ma mantiene il controllo diretto sull'organizzazione interna, decidendo come i record sono distribuiti nei blocchi e quale sia la struttura interna ai blocchi stessi.
 
-5. se necessario vengono effettuate operazioni di lettura o scrittura su disco.
+Nella mappatura standard delle relazioni sui dischi, il DBMS gestisce lo spazio allocato come un unico grande contenitore virtuale di memoria secondaria. Vengono creati file di grandi dimensioni che possono ospitare l'intera base di dati o diverse relazioni. È possibile che un singolo file contenga dati di più relazioni o, viceversa, che le ennuple di una singola relazione siano distribuite su file diversi. All'interno di questo spazio, il DBMS costruisce le strutture fisiche necessarie. Sebbene non sia una regola assoluta, spesso ogni blocco è dedicato esclusivamente alle ennuple di un'unica relazione.
 
-Questa organizzazione è fondamentale perché **l’accesso al disco è molto più lento rispetto all’accesso alla memoria principale**, quindi il DBMS cerca di ridurre il più possibile le operazioni di I/O.
+La gerarchia di mappatura segue un percorso articolato che collega il software all'hardware:
 
-# Architettura di SimpleDB
+1. Dal lato del **sistema operativo**, si parte dai dischi reali, suddivisi in _extents_ che formano i dischi logici, i quali vengono infine visti come file del sistema operativo (OS-files).
+2. Dal lato del **database system**, i file vengono organizzati in _tablespaces_, suddivisi in segmenti che contengono le effettive relazioni. Questa complessa interazione permette di astrarre la struttura logica delle tabelle dalla loro frammentazione fisica sui dispositivi di memorizzazione.
 
-Nel sistema didattico **SimpleDB** l’architettura è suddivisa in diversi moduli.
+## La gestione del buffer e le metafore del lavoro d'ufficio
 
-Il componente **Remote** riceve le richieste dal client e passa le query SQL al planner.
+Per comprendere il funzionamento del buffer, è utile ricorrere a una metafora lavorativa. Si immagini che la **memoria secondaria** sia un grande classificatore di documenti situato in un'altra stanza. Per poter lavorare su un documento, esso deve essere necessariamente spostato sulla scrivania, che rappresenta la **memoria principale (RAM)**. Se un impiegato deve occuparsi di più argomenti contemporaneamente, terrà diverse cartelline sulla scrivania. Tuttavia, lo spazio sulla scrivania è limitato; a un certo punto la superficie si riempie e non è più possibile aggiungere nuovi documenti. In questa situazione, è necessario scegliere una cartellina da "rimettere a posto" nel classificatore per liberare spazio.
 
-Il **Planner** ha il compito di coordinare l’elaborazione della query. Per farlo chiama il **Parser**, che esegue l’analisi sintattica della query SQL, e poi costruisce il piano di esecuzione che verrà eseguito dal sistema.
+La scelta di quale documento rimuovere dalla scrivania segue delle **euristiche**. Idealmente, si vorrebbe eliminare il documento che non servirà nel prossimo futuro. Poiché non è possibile prevedere il futuro, si assume che il documento non utilizzato da più tempo sia quello meno probabile da richiedere a breve. Una metafora alternativa è quella dell'**armadio**: quando si ripone un vestito, lo si inserisce all'estremità destra dell'asta. In questo modo, le cose usate più di recente si accumulano a destra, mentre i vestiti non utilizzati (come i giubbetti estivi a fine inverno) finiscono progressivamente verso l'estremità sinistra. Se serve spazio per un nuovo acquisto, si dismette il vestito che si trova all'estremità sinistra, ovvero quello non utilizzato da più tempo.
 
-Il componente **Query** riceve il piano e lo esegue, richiamando le operazioni necessarie sui dati.
+## Dettagli tecnici del Buffer Management
 
-Il modulo **Metadata** gestisce gli schemi delle tabelle, cioè le informazioni sulla struttura dei dati.
+Il **Buffer** è un'area di memoria centrale preallocata e gestita direttamente dal DBMS, condivisa tra tutte le transazioni attive. È organizzato in **pagine**, le cui dimensioni sono pari o multiple di quelle dei blocchi della memoria secondaria, tipicamente comprese tra $1KB$ e $100KB$. È fondamentale distinguere il buffer del DBMS dalla cache del disco, che è una memoria interna al dispositivo hardware gestita dal controller del disco stesso.
 
-Il modulo **Record** gestisce i blocchi contenenti i record delle tabelle.
+Lo scopo primario del buffer manager è ridurre il numero di accessi alla memoria secondaria, data l'enorme differenza di velocità tra RAM e disco. In fase di lettura, se la pagina richiesta è già presente nel buffer, l'accesso fisico viene evitato. In fase di scrittura, il gestore può decidere di differire l'operazione fisica sul disco, accumulando le modifiche in memoria (salvo restrizioni legate alla gestione dell'affidabilità). Questo sistema sfrutta il principio della **località dei dati**: esiste un'alta probabilità di riutilizzare dati che sono stati acceduti di recente.
 
-Il componente **Transaction** si occupa della gestione della concorrenza tra transazioni.
+Per gestire questa struttura, il DBMS mantiene un **direttorio** (una tabella di controllo) che per ogni pagina memorizza:
 
-Il **Buffer manager** mantiene in memoria alcune pagine di dati per ridurre il numero di accessi al disco.
+1. Un identificatore fisico del blocco (nome del file e numero del blocco o indirizzo fisico).
+2. Un **contatore di pin**: un intero che indica quanti programmi o transazioni stanno attualmente utilizzando quella pagina. Una pagina con contatore maggiore di zero è "fissata" e non può essere rimossa.
+3. Un **dirty bit** (booleano): indica se la pagina è "sporca", ovvero se è stata modificata in memoria ma non ancora riportata su disco.
 
-Il **Log manager** registra le operazioni eseguite in modo da garantire affidabilità e recupero in caso di errore.
+## L'interfaccia del Buffer Manager
 
-Infine il **File manager** si occupa delle operazioni di lettura e scrittura delle pagine su disco.
+Le operazioni fondamentali offerte dal buffer manager sono:
 
-# Il buffer: una metafora
+* **fix** o **pin**: richiesta di un blocco. Se il blocco non è nel buffer, viene eseguita una lettura fisica. Il sistema restituisce l'indirizzo della pagina e incrementa il contatore di pin.
+* **setDirty** (o **setModified**): comunica che la pagina è stata modificata.
+* **unfix** o **unpin**: comunica che il programma ha terminato l'uso della pagina, permettendo al gestore di decrementare il contatore.
+* **force** o **flush**: forza il trasferimento sincrono di una pagina sporca sulla memoria secondaria.
 
-Il funzionamento del buffer può essere spiegato con una metafora molto semplice.
+Durante l'esecuzione di una `fix`, il gestore cerca la pagina nel buffer. Se non la trova, deve cercare una pagina "libera" (con contatore a zero). Se la pagina scelta per il rimpiazzo è "sporca", deve prima salvarla su disco. Se non ci sono pagine con contatore a zero, il sistema può seguire due politiche:
 
-Immaginiamo di avere molti documenti conservati in un classificatore. Quando dobbiamo lavorare su alcuni di essi, li spostiamo sulla scrivania per averli a portata di mano. Una volta terminato il lavoro, possiamo rimetterli nel classificatore.
+* **No-steal**: l'operazione viene posta in attesa finché una pagina non viene liberata.
+* **Steal**: viene selezionata una "vittima" anche tra le pagine occupate, scrivendone i dati su disco se sporca (questo approccio è più complesso e spesso evitato nelle implementazioni semplificate).
 
-In questa analogia:
+Le scritture su disco possono quindi essere **sincrone** (richieste esplicite di flush) o **asincrone** (decise dal gestore per liberare spazio o per ottimizzare le prestazioni del dispositivo sfruttando i tempi morti).
 
-* il **classificatore** rappresenta il disco,
+## Strategie di rimpiazzo (Buffer Replacement)
 
-* la **scrivania** rappresenta la memoria principale,
+Quando è necessario caricare un nuovo blocco e il buffer è pieno di pagine non utilizzate, bisogna scegliere quale sacrificare. Le strategie principali sono:
 
-* i **documenti sulla scrivania** corrispondono alle pagine mantenute nel buffer.
+* **Naive**: sceglie la prima pagina libera incontrata nella scansione.
+* **FIFO (First-In-First-Out)**: sostituisce la pagina che è stata caricata da più tempo.
+* **LRU (Least Recently Used)**: sostituisce la pagina che è stata utilizzata meno di recente. È la strategia che meglio approssima la previsione del futuro basandosi sul passato.
+* **Clock**: esegue una scansione circolare partendo dalla posizione successiva all'ultimo rimpiazzo, offrendo un'approssimazione efficiente della LRU.
 
-Questo esempio mostra che non ha senso lavorare direttamente sul classificatore ogni volta che serve un documento: è molto più efficiente tenerlo temporaneamente sulla scrivania.
+Consideriamo un esercizio con un buffer di 4 pagine (0-3). Lo stato iniziale all'istante 9 vede:
 
-# Il principio di località
+* Pagina 0: blocco 70, pin 1, load 1, dirty 1.
+* Pagina 1: blocco 33, pin 2, load 7, dirty 0.
+* Pagina 2: blocco 35, pin 0, load 3, unpin 8, dirty 0.
+* Pagina 3: blocco 47, pin 1, load 9, dirty 0.
 
-Il buffer sfrutta il **principio di località**. Questo principio afferma che i dati utilizzati recentemente hanno un’elevata probabilità di essere riutilizzati nel prossimo futuro. Si tratta di un comportamento tipico dei programmi e delle interrogazioni sui database.
+Se all'istante 11 viene eseguita una `pin(60)`, il sistema cerca una pagina libera (pin=0). L'unica è la pagina 2. Poiché non contiene il blocco 60, deve caricarlo. Il blocco 35 viene rimpiazzato dal 60. Se la strategia fosse **LRU**, all'istante 17 per una `pin(70)`, si cercherebbero pagine con pin=0. Se dopo varie operazioni di `unpin` la pagina 0 fosse libera, essa verrebbe scelta se il suo istante di ultimo utilizzo fosse il più remoto.
 
-Esistono due forme principali di località:
+## Organizzazione dei record nei blocchi
 
-* **località temporale**, secondo cui i dati usati recentemente tenderanno a essere riutilizzati presto;
+Un file è composto logicamente da **record** (ennuple) ma è organizzato fisicamente in **blocchi**. Poiché le dimensioni di questi due elementi sono solitamente diverse, è necessario gestire la loro mappatura. I record possono essere a **lunghezza fissa** o **variabile**. I blocchi possono essere **omogenei** (record di una sola relazione) o **eterogenei** (record di relazioni diverse, utile per ottimizzare i join fisici).
 
-* **località spaziale**, secondo cui se un dato viene utilizzato è probabile che vengano utilizzati anche dati vicini.
+Se un record è interamente contenuto in un blocco, si parla di organizzazione **unspanned**. Se un record può essere diviso tra più blocchi, si parla di **spanned**. In caso di record a lunghezza fissa $L\_R$ e blocchi di dimensione $L\_B$, il **fattore di blocco** (numero di record per blocco) è calcolato come: $f = \lfloor L\_B / L\_R \rfloor$
 
-Il buffer manager sfrutta questo comportamento mantenendo in memoria i blocchi che sono stati usati più recentemente o che potrebbero essere utilizzati di nuovo.
+L'organizzazione interna di una pagina prevede solitamente un **dizionario di pagina** e una **parte utile**. Una struttura comune prevede due stack che crescono in direzioni opposte: uno stack per il dizionario (puntatori alle ennuple $\*t1, \*t2, \dots$) e uno stack per i dati effettivi ($t1, t2, \dots$). Questo permette di gestire record di lunghezza variabile. La pagina include anche informazioni di controllo della struttura fisica e del file system, oltre a un bit di parità per il controllo degli errori.
 
-# Gestione dei buffer
+## Strutture fisiche e file disordinati
 
-La **gestione del buffer** ha lo scopo di ridurre il numero di accessi alla memoria secondaria. Poiché gli accessi al disco sono molto costosi in termini di tempo, mantenere alcune pagine in memoria principale consente di migliorare significativamente le prestazioni del sistema.
+Le strutture fisiche si dividono in:
 
-Il buffer manager mantiene in memoria un insieme di pagine che rappresentano copie temporanee dei blocchi presenti su disco. Quando un componente del DBMS ha bisogno di accedere a un blocco, il buffer manager verifica se il blocco è già presente nel buffer. Se lo è, l’accesso avviene direttamente in memoria; altrimenti il blocco deve essere letto dal disco.
+* **Primarie**: definiscono come i record sono organizzati nel file.
+* **Secondarie**: strutture ausiliarie (come gli indici) per velocizzare l'accesso.
 
-# Dati gestiti dal buffer manager
+Le tipologie principali sono sequenziali, calcolate (Hash) o ad albero. Tra le sequenziali, la più semplice è la **struttura disordinata** (chiamata anche file seriale, heap o "entry sequenced"). In questa organizzazione, non esiste un ordine logico: i nuovi record vengono inseriti solitamente in coda o occupando i "voti" lasciati da cancellazioni precedenti.
 
-Il buffer manager gestisce principalmente **pagine di dati**. Una pagina è l’unità di trasferimento tra disco e memoria principale.
+Le operazioni su un file disordinato includono la scansione (`beforeFirst`, `next`), la lettura di campi (`getInt`, `getString`) e l'aggiornamento (`setInt`, `insert`, `delete`). L'implementazione della `next` verifica se nel blocco corrente ci sono altri record; in caso negativo, passa al primo record del blocco successivo. Il costo di ricerca e inserimento in un file disordinato è **lineare** rispetto al numero di blocchi del file, rendendolo inefficiente per basi di dati di grandi dimensioni senza l'ausilio di indici secondari. Sebbene l'inserimento potrebbe sembrare $O(1)$ scrivendo in coda, la necessità di verificare vincoli di integrità (come l'unicità della chiave) richiede comunque una scansione completa, riportando il costo a $O(N)$.
 
-Ogni pagina nel buffer è associata ad alcune informazioni di controllo, tra cui:
+# Strutture ordinate e File Hash
 
-* il **blocco su disco** a cui la pagina corrisponde;
+In un sistema di gestione di basi di dati, l'organizzazione fisica dei record può seguire criteri logico-matematici precisi per ottimizzare il reperimento delle informazioni. Una delle modalità fondamentali è la **struttura ordinata**, in cui ogni record, ovvero ogni ennupla della relazione, occupa una posizione fisica specifica determinata dal valore di un particolare campo. Questo campo viene definito **chiave** o, con maggior rigore accademico, **pseudochiave**, poiché funge da criterio di ordinamento ma non è necessariamente una chiave primaria in senso logico.
 
-* un **contatore di utilizzo**, che indica quante operazioni stanno usando quella pagina;
+Si consideri un esempio basato su una tabella composta dagli attributi Matricola, Cognome e Nome. Se il file è **ordinato per Matricola**, i record appariranno in una sequenza numerica crescente:
 
-* un **flag di modifica** (dirty bit), che indica se la pagina è stata modificata e quindi deve essere riscritta su disco.
+* 15 Neri Piero
+* 21 Rossi Mario
+* 30 Bianchi Gino
+* 38 Verdi Luigi
+* 40 Rossi Mario
+* 53 Neri Luca
 
-Queste informazioni permettono al sistema di sapere quando una pagina può essere rimossa dal buffer e se deve essere salvata prima sul disco.
+Alternativamente, la stessa base di dati potrebbe essere mantenuta in una struttura **ordinata per Cognome**. In questo scenario, l'ordine alfabetico prevale su quello numerico della matricola, portando a una disposizione differente:
 
-# Funzioni del buffer manager
+* 30 Bianchi Gino
+* 15 Neri Piero
+* 53 Neri Luca
+* 21 Rossi Mario
+* 40 Rossi Mario
+* 38 Verdi Luigi
 
-Il buffer manager offre diverse funzioni ai livelli superiori del DBMS.
+L'adozione di una struttura ordinata comporta sfide significative per quanto riguarda la manutenzione della coerenza durante le operazioni di modifica. Gli **aggiornamenti** richiedono spesso interventi strutturali pesanti: l'inserimento di un nuovo record non può avvenire semplicemente in coda al file (come in una struttura heap), ma deve rispettare la posizione prevista dal criterio di ordinamento. Ad esempio, inserendo il record "66 Bruni Marco" in una tabella ordinata per cognome, il sistema deve individuare la posizione corretta (tra Bianchi e Neri) e traslare fisicamente tutti i record successivi per creare lo spazio necessario. Lo stesso problema si presenta con campi a lunghezza variabile quando un valore viene aggiornato con una stringa più lunga della precedente, causando uno slittamento dei record contigui.
 
-Una delle operazioni principali è la **fix**, che serve a richiedere una pagina nel buffer. Quando un componente richiede una pagina, il buffer manager verifica se è già presente nel buffer. Se la pagina è già disponibile, viene restituita immediatamente; altrimenti deve essere caricata dal disco.
+Per gestire queste inefficienze, si adottano diverse strategie, spesso combinate tra loro:
 
-Un’altra operazione importante è la **unfix**, che segnala che un componente ha terminato di usare una pagina.
+* **Riorganizzazione immediata**: il file viene riscritto istantaneamente per mantenere l'ordine perfetto, operazione molto costosa in termini di I/O.
+* **Spazio inizialmente ridondante**: si lasciano spazi vuoti (_padding_) all'interno dei blocchi per ospitare futuri inserimenti senza causare slittamenti immediati.
+* **Inserimenti in coda o in blocchi di overflow**: i nuovi record vengono temporaneamente memorizzati in un'area separata e collegati alla posizione corretta tramite puntatori.
+* **Riorganizzazioni periodiche**: il sistema esegue ciclicamente una manutenzione globale del file per ricompattare i dati ed eliminare le aree di overflow.
 
-Queste operazioni permettono al sistema di gestire correttamente l’uso concorrente delle pagine.
+Sebbene le strutture ordinate permettano teoricamente l'uso della **ricerca binaria**, la loro applicazione pratica nei DBMS è limitata. La difficoltà risiede nella struttura fisica dei file: come si individua esattamente la "metà" di un file memorizzato su disco per poi procedere ricorsivamente? Per tale ragione, nelle basi di dati relazionali, queste strutture vengono utilizzate quasi esclusivamente in combinazione con gli indici, dando vita ai file **ISAM** (_Indexed Sequential Access Method_) o a file ordinati dotati di un indice primario. Restano comunque strumenti preziosi quando è necessario fornire risultati già ordinati all'utente o come fase preparatoria per operazioni costose come il merge-join.
 
-# Esecuzione della fix
+Una tecnica radicalmente differente per l'accesso efficiente ai dati è rappresentata dai **File Hash**. Questa organizzazione mira a fornire un accesso diretto o associativo basato sul valore di un campo di ricerca. In un sistema come SimpleDB, l'efficienza è evidente nel passaggio dal metodo di scansione totale `beforeFirst()` a un metodo mirato `beforeFirst(searchKey)`. Questa tecnica traspone sul disco i concetti delle **tavole hash** utilizzate nella memoria centrale.
 
-Quando viene richiesta una pagina tramite l’operazione di fix, il buffer manager esegue una serie di passi.
+L'obiettivo di una tavola hash è l'accesso diretto a un record tramite il valore di una chiave. Se lo spazio dei possibili valori della chiave è paragonabile al numero di record effettivi (ad esempio, 1000 studenti con matricole da 1 a 1000), è possibile utilizzare un semplice array dove l'indice corrisponde alla chiave. Tuttavia, quando i possibili valori sono molto più numerosi di quelli utilizzati (ad esempio, 40 studenti con matricole a 6 cifre, che generano un milione di combinazioni potenziali), l'uso di un array diretto causerebbe un enorme spreco di memoria.
 
-Prima controlla se la pagina richiesta è già presente nel buffer. Se lo è, aumenta il contatore di utilizzo e restituisce la pagina.
+La soluzione consiste nell'utilizzare una **funzione hash**, che associa a ogni valore della chiave un "indirizzo" in uno spazio di dimensione contenuta, paragonabile al numero di record da memorizzare. Poiché lo spazio delle chiavi è vasto e quello degli indirizzi è limitato, la funzione non può essere iniettiva, rendendo inevitabili le **collisioni** (ovvero quando chiavi diverse corrispondono allo stesso indirizzo). Una buona funzione hash deve distribuire i valori in modo casuale e uniforme per minimizzare tali eventi. Un esempio didattico è la funzione modulo: $K \pmod{n}$, dove $n$ è la dimensione della tavola.
 
-Se la pagina non è presente nel buffer, il sistema deve caricarla dal disco. Se nel buffer è disponibile uno spazio libero, la pagina viene semplicemente caricata.
+Si consideri un diagramma di flusso che illustra il processo: a sinistra abbiamo l'insieme delle chiavi (es. "John Smith", "Lisa Smith", "Sam Doe", "Sandra Dee"). Al centro agisce la **hash function** che mappa queste stringhe in valori numerici a destra, definiti **hashes**. In questo schema specifico, "Lisa Smith" viene mappata all'indirizzo `01`, "Sam Doe" al `04`, mentre "John Smith" e "Sandra Dee" collidono entrambi sull'indirizzo `02` (evidenziato graficamente per indicare l'anomalia). Gli indirizzi disponibili vanno da `00` a `15`.
 
-Se invece il buffer è pieno, il sistema deve scegliere una pagina da rimuovere. In questo caso entra in gioco una **strategia di rimpiazzo**.
+Analizziamo un esercizio numerico con 8 record dotati delle seguenti chiavi: 240772, 240810, 449726, 447004, 453900, 281425, 281267, 405154. Utilizzando una tavola hash con 10 posizioni e la funzione $K \pmod{10}$, la distribuzione risulta:
 
-Se la pagina da rimuovere è stata modificata, deve essere prima scritta su disco per evitare la perdita di dati.
+* Posizione 0: ospita 240810, ma collide con 453900.
+* Posizione 2: ospita 240772.
+* Posizione 4: ospita 447004, ma collide con 405154.
+* Posizione 5: ospita 281425.
+* Posizione 6: ospita 449726.
+* Posizione 7: ospita 281267. Le chiavi 453900 e 405154 rimangono inizialmente "escluse" dalla tavola principale.
 
-# Strategie di rimpiazzo
+Per la **gestione delle collisioni**, si impiegano diverse tecniche:
 
-Quando il buffer è pieno e deve essere caricata una nuova pagina, il sistema deve scegliere quale pagina eliminare dal buffer.
+1. **Posizioni successive disponibili**: si cerca il primo slot libero dopo quello calcolato.
+2. **Tabella di overflow**: i record collidenti vengono inseriti in un'area separata gestita tramite liste collegate.
+3. **Funzioni hash alternative**: si applica una seconda funzione in caso di collisione.
 
-Questa scelta viene effettuata tramite una **politica di rimpiazzo**.
+Il "costo" di queste strutture viene valutato in termini di accessi medi. In un esempio con 40 record e una tavola da 50 posizioni, si potrebbero avere 20 record senza collisioni, 5 gruppi di collisioni da 2 record, 2 gruppi da 3 e 1 gruppo da 4. Il numero medio di accessi si calcola come: $(28 \times 1 + 8 \times 2 + 3 \times 3 + 1 \times 4) / 40 = 1,425$ Sebbene le collisioni siano quasi sempre presenti, la probabilità di collisioni multiple decresce rapidamente al crescere della loro numerosità, mantenendo la molteplicità media molto bassa.
 
-Una strategia molto semplice è la strategia **NAIF**, che seleziona una pagina in modo arbitrario tra quelle disponibili.
+Il concetto si estende al **File Hash** organizzato per blocchi. Qui, ogni "indirizzo" della funzione hash punta a un intero blocco che può contenere più record (fattore di blocco $F$). Lo spazio degli indirizzi si riduce: se $F = 10$, per 50 posizioni totali si possono usare solo 5 blocchi (funzione $\pmod{5}$ invece di $\pmod{50}$). Le collisioni che eccedono la capacità del blocco (_overflow_) sono tipicamente gestite tramite il collegamento di nuovi blocchi.
 
-Una strategia più efficace è **LRU (Least Recently Used)**. Questa strategia rimuove la pagina che non viene utilizzata da più tempo. L’idea è basata sul principio di località: se una pagina non è stata usata recentemente, è meno probabile che venga usata nel prossimo futuro.
+Riprendendo l'esempio degli 8 record con $F = 5$ e funzione $K \pmod{2}$:
 
-LRU tende a funzionare bene nella pratica perché sfrutta il comportamento tipico dei programmi.
+* **Blocco 0** (chiavi pari): riceve 240810, 453900, 240772, 405154, 447004. Avendo raggiunto il limite di 5 record, la chiave successiva con resto 0 (449726) deve andare in overflow.
+* **Blocco 1** (chiavi dispari): riceve 281425, 281267.
 
-# Blocchi e record
+Il confronto tra tavola hash e file hash mostra che quest'ultimo è più efficiente. Con 40 record:
 
-Nel DBMS i dati sono organizzati in **record**, che rappresentano le singole tuple delle relazioni. I record non vengono memorizzati individualmente sul disco, ma sono raggruppati all’interno di **blocchi** (o pagine).
+* Tavola hash (50 posizioni): 12 record in overflow, costo medio 1,425.
+* File hash (5 blocchi da 10): solo 2 record in overflow, costo medio 1,05. Questa efficienza superiore deriva dal fatto che il blocco funge da "ammortizzatore" per le collisioni locali.
 
-Il blocco è quindi l’unità di trasferimento tra memoria secondaria e memoria principale. Quando il sistema deve accedere a un record, in realtà legge l’intero blocco che lo contiene.
+Le stime statistiche confermano che all'aumentare del fattore di blocco $F$, la lunghezza media delle catene di overflow e il costo di accesso diminuiscono drasticamente, anche con coefficienti di riempimento elevati. Ad esempio, con un riempimento del $90%$ ($T/(F \times B) = 0.9$):
 
-Questa scelta è dovuta al fatto che le operazioni di I/O sono molto costose e quindi conviene trasferire una quantità relativamente grande di dati alla volta.
+* Se $F = 1$, il costo è $5,495$.
+* Se $F = 10$, il costo scende a $1,345$.
 
-# Record e blocchi
+In conclusione, il file hash è l'organizzazione più efficiente per l'accesso puntuale (uguaglianza), con un costo medio vicino all'unità. Tuttavia, non è adatto a ricerche per intervalli e tende a degradare se lo spazio diventa saturo. Per ovviare alla rigidità delle dimensioni, si ricorre a tecniche di **hashing dinamico**, come l'hashing estendibile o lineare, che permettono al file di adattarsi alla variazione del numero di record nel tempo.
 
-Un blocco può contenere più record. Il numero di record che possono essere memorizzati in un blocco dipende dalla dimensione del blocco e dalla dimensione dei record.
 
-Per questo motivo il DBMS deve gestire attentamente l’organizzazione interna dei blocchi per utilizzare lo spazio in modo efficiente.
+## Analisi delle collisioni e organizzazione delle strutture di accesso
 
-# Fattore di blocco
+L'efficienza di un file hash è strettamente legata alla gestione delle collisioni e alla lunghezza delle catene di overflow. La stima della lunghezza media di queste catene varia in funzione di quattro parametri fondamentali: il numero totale di record esistenti ($T$), il numero di blocchi allocati ($B$), il fattore di blocco ($F$) e il coefficiente di riempimento, definito dal rapporto $T/(F \times B)$. All'aumentare del coefficiente di riempimento, la probabilità di collisione cresce, influenzando direttamente il costo di accesso.
 
-Il **fattore di blocco** indica quanti record possono essere memorizzati all’interno di un blocco.
+Dalle analisi statistiche emerge che, mantenendo un coefficiente di riempimento costante, un fattore di blocco $F$ più elevato riduce drasticamente la lunghezza media delle catene di overflow. Ad esempio, con un coefficiente di riempimento del $0.9$ (file molto pieno), se $F=1$ la lunghezza media delle catene è di $4.495$, mentre se $F=10$ scende a soli $0.345$. Il costo di un'operazione, inteso come numero di accessi necessari, è calcolato sommando l'unità (l'accesso al blocco primario) alla lunghezza media delle catene di overflow. Nelle stesse condizioni di riempimento ($0.9$), il costo passa da $5.495$ per $F=1$ a $1.345$ per $F=10$. In generale, un file hash ben progettato mantiene un costo medio di poco superiore all'unità. Sebbene il caso peggiore teorico sia estremamente costoso, la sua probabilità statistica è talmente bassa da poter essere ignorata nelle applicazioni reali.
 
-Formalmente è il rapporto tra:
+Il file hash rappresenta l'organizzazione più efficiente per l'accesso diretto basato su valori della chiave con condizioni di uguaglianza, operazione definita accesso puntuale. Tuttavia, presenta limitazioni strutturali: non è efficiente per le ricerche basate su intervalli e tende a degenerare se lo spazio sovrabbondante si riduce. Queste strutture funzionano correttamente solo con file la cui dimensione non varia sensibilmente nel tempo, a meno di non ricorrere a tecniche di hashing dinamico, come l'hashing estendibile o lineare.
 
-* la dimensione del blocco
+## Hashing estendibile
 
-* la dimensione del record
+L'hashing estendibile supera la rigidità delle strutture statiche poiché il numero di blocchi (o bucket) non è predefinito. Questa tecnica utilizza una directory dei blocchi che può variare di dimensione, sebbene solitamente cresca in modo lento. Il sistema si basa sulla rappresentazione binaria del valore di hash ottenuto dalla chiave.
 
-Sapere quanti record entrano in un blocco è molto importante per stimare il **costo delle operazioni di accesso ai dati**, perché il numero di blocchi da leggere influisce direttamente sul numero di accessi al disco.
+Le caratteristiche tecniche prevedono:
+
+* Una funzione hash che produce valori di $k$ bit (dove $k$ può essere un numero molto grande).
+* Una directory composta da $2^d$ elementi, dove $d$ rappresenta la profondità globale dell'indice ($d \leq k$).
+* Un numero di blocchi fisici generalmente inferiore a $2^d$, poiché più elementi della directory possono puntare allo stesso blocco fisico.
+* Una profondità locale associata a ogni blocco, che indica il numero di bit iniziali comuni ai record contenuti o potenzialmente inseribili in quel blocco.
+
+La dinamica di inserimento prevede che, se un blocco si satura, esso venga diviso in due. In questa circostanza, se la profondità locale del blocco è inferiore alla profondità globale, è sufficiente aggiornare i puntatori nella directory. Se invece la profondità locale è uguale alla profondità globale, il blocco è l'unico a essere riferito da quell'elemento della directory; per permettere la divisione, è necessario raddoppiare la dimensione della directory incrementando $d$ di una unità.
+
+Si consideri un esempio con profondità globale $d=2$. La directory ha $2^2=4$ elementi (identificati dai bit $00, 01, 10, 11$). Se un blocco ha profondità locale $1$, significa che risponde a più voci della directory (ad esempio $00$ e $01$ puntano allo stesso blocco perché condividono il primo bit $0$). Se inseriamo un record il cui hash inizia con $01010 \dots$ e il blocco corrispondente (che contiene già record come $00000 \dots, 00100 \dots, 01000 \dots$) è pieno, il blocco viene diviso. I record vengono ridistribuiti: quelli che iniziano con $00$ restano nel blocco originale, quelli che iniziano con $01$ (incluso il nuovo record) passano a un nuovo blocco. Entrambi i blocchi avranno ora profondità locale $2$. Se si tentasse di dividere un blocco che ha già profondità locale $2$ (uguale alla globale), come quello contenente record che iniziano con $11$, la directory verrebbe raddoppiata portando la profondità globale a $3$ e la directory a $8$ elementi ($000, 001, \dots, 111$).
+
+Il costo dell'hashing estendibile prevede un accesso aggiuntivo per la directory. Il costo di riferimento è dunque pari a due (directory più blocco), più le riorganizzazioni che, essendo rare, mantengono la media di poco superiore a due. Se la directory è frequentemente utilizzata e risiede nel buffer, il costo si avvicina all'unità.
+
+# Indici di file e strutture di accesso
+
+Le strutture fisiche si dividono in primarie (che determinano il posizionamento fisico dei record, come i file disordinati, ordinati o hash statici) e secondarie (elementi ausiliari per l'accesso efficiente). Un indice è una struttura ausiliaria che permette l'accesso ai record di un file $F$ basandosi sui valori di una pseudochiave (campo non necessariamente identificante).
+
+Un indice $I$ è a sua volta un file composto da record a due campi: la chiave e l'indirizzo (del record o del blocco in $F$). L'indice è sempre ordinato secondo i valori della chiave. Si distinguono due tipologie principali:
+
+* **Indice Primario**: definito su un campo che rispetta l'ordinamento fisico della memorizzazione del file (detto anche indice di cluster). Esiste al più un indice primario per file.
+* **Indice Secondario**: definito su un campo il cui ordinamento è diverso da quello di memorizzazione. Un file può avere molteplici indici secondari.
+
+Un'ulteriore distinzione riguarda la copertura dei valori:
+
+* **Indice Denso**: contiene un riferimento per ogni singolo valore della chiave presente nel file. Gli indici secondari devono necessariamente essere densi.
+* **Indice Sparso**: contiene riferimenti solo per alcuni valori della chiave (solitamente uno per ogni blocco del file). Un indice primario è solitamente sparso per risparmiare spazio, ma può essere denso per velocizzare verifiche di esistenza senza accedere al file dati.
+
+Negli indici densi si possono usare puntatori ai blocchi (più compatti) o puntatori ai record. Questi ultimi permettono di eseguire alcune operazioni (come conteggi o verifiche) direttamente sull'indice senza accedere al file principale. Se la pseudochiave non è identificante (più record con lo stesso valore), l'indice primario sparso può puntare solo ai blocchi con valori "nuovi", mentre l'indice secondario può gestire la duplicazione dei valori della chiave ripetendo la coppia (chiave, riferimento) o utilizzando un livello di indirezione con liste di puntatori.
+
+## Dimensioni dell'indice
+
+Sia $L$ il numero di record, $B$ la dimensione del blocco, $R$ la lunghezza del record, $K$ la lunghezza della chiave e $P$ la lunghezza dell'indirizzo. Si definiscono le seguenti formule:
+
+* Fattore di blocco del file: $B/R$
+* Numero di blocchi del file: $N\_F = L / (B/R)$
+* Fattore di blocco dell'indice: $B/(K+P)$
+* Numero di blocchi per un indice denso: $N\_D = L / (B/(K+P))$
+* Numero di blocchi per un indice sparso: $N\_S = N\_F / (B/(K+P))$
+
+Considerando un esempio con $L = 1.000.000$, $B = 4KB$, $R = 100B$, $K = 4B$ e $P = 4B$, otteniamo:
+
+* $B/R = 40$ record per blocco.
+* $N\_F = 1.000.000 / 40 = 25.000$ blocchi.
+* $B/(K+P) = 4000 / 8 = 500$ record indice per blocco.
+* $N\_D = 1.000.000 / 500 = 2.000$ blocchi.
+* $N\_S = 25.000 / 500 = 50$ blocchi.
+
+L'indice sparso risulta significativamente più piccolo ($50$ blocchi contro i $25.000$ del file), facilitando enormemente la ricerca. Gli indici garantiscono un accesso diretto efficiente (puntuale e per intervalli) e una scansione sequenziale ordinata. Tuttavia, rendono inefficienti le modifiche, gli inserimenti e le eliminazioni a causa della rigidità dell'ordinamento. Per mitigare questi problemi si utilizzano blocchi di overflow, marcature per l'eliminazione (_tombstones_), riempimento parziale o riorganizzazioni periodiche.
+
+## Indici multilivello e B-tree
+
+Poiché gli indici sono file ordinati, è possibile costruire indici sugli indici per evitare scansioni sequenziali tra i blocchi dell'indice stesso. Questo crea una struttura multilivello dove l'indice di livello superiore è sempre primario e sparso rispetto a quello inferiore. Il processo prosegue fino a ottenere un livello composto da un solo blocco (la radice).
+
+Il numero di blocchi al livello $j$ è dato da: $N\_j = N\_{j-1} / (B/(K+P))$ Il numero di blocchi a cui un blocco fa riferimento è detto _fan-out_. Negli indici multilivello la profondità è solitamente ridotta (tra 3 e 5). Con un fan-out di $500$, un indice denso di $2.000$ blocchi richiede solo 3 livelli ($N\_1=2000, N\_2=4, N\_3=1$), mentre uno sparso di $50$ blocchi ne richiede solo 2 ($N\_1=50, N\_2=1$).
+
+I DBMS moderni utilizzano strutture più sofisticate come i **B-tree** per gestire l'elevata dinamicità. Un B-tree è un albero di ricerca bilanciato in cui ogni nodo corrisponde a un blocco. Caratteristiche principali:
+
+* Mantenimento del perfetto bilanciamento (foglie allo stesso livello).
+* Riempimento parziale dei nodi (mediamente $70%$, con un minimo garantito del $50%$).
+* In un albero di ordine $P$, ogni nodo ha fino a $P$ figli e $P-1$ etichette ordinate.
+* L'i-esimo sottoalbero contiene chiavi $K$ tali che $K\_{i-1} \leq K < K\_i$.
+
+Negli inserimenti, se una foglia è piena, avviene uno **split** (divisione del nodo) che può propagarsi verso l'alto fino alla radice. Le eliminazioni possono causare un **merge** (fusione di nodi) se il riempimento scende sotto la soglia.
+
+Si distinguono due varianti:
+
+1. **B+ tree**: Tutte le chiavi e i riferimenti ai dati compaiono nelle foglie. Le foglie sono collegate tra loro in una lista per ottimizzare le ricerche su intervalli. I nodi intermedi contengono solo chiavi per guidare la ricerca. È la struttura più usata nei DBMS.
+2. **B tree**: Le chiavi e i riferimenti ai dati possono trovarsi anche nei nodi intermedi e non vengono ripetuti nelle foglie.
+
+Il costo di ricerca in queste strutture è pari alla profondità dell'albero. Grazie alla bufferizzazione della radice e dei primi livelli, il costo reale di un accesso diretto scende spesso a soli $2$ o $3$ accessi fisici.
