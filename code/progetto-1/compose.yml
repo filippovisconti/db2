@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: university_db
+    environment:
+      POSTGRES_USER: db_admin
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: university
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: university_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@university.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres-db
+
+volumes:
+  pgdata:

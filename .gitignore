@@ -3,7 +3,8 @@
 __MACOSX/
 .AppleDouble
 .LSOverride
-Icon[]
+Icon[
+]
 
 # Thumbnails
 ._*
@@ -361,3 +362,4 @@ TSWLatexianTemp*
 
 # Built Visual Studio Code Extensions
 *.vsix
+code/SimpleClient
