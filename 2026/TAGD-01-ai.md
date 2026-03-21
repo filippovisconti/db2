@@ -111,7 +111,7 @@ Se all'istante 11 viene eseguita una `pin(60)`, il sistema cerca una pagina libe
 
 Un file è composto logicamente da **record** (ennuple) ma è organizzato fisicamente in **blocchi**. Poiché le dimensioni di questi due elementi sono solitamente diverse, è necessario gestire la loro mappatura. I record possono essere a **lunghezza fissa** o **variabile**. I blocchi possono essere **omogenei** (record di una sola relazione) o **eterogenei** (record di relazioni diverse, utile per ottimizzare i join fisici).
 
-Se un record è interamente contenuto in un blocco, si parla di organizzazione **unspanned**. Se un record può essere diviso tra più blocchi, si parla di **spanned**. In caso di record a lunghezza fissa $L\_R$ e blocchi di dimensione $L\_B$, il **fattore di blocco** (numero di record per blocco) è calcolato come: $f = \lfloor L\_B / L\_R \rfloor$
+Se un record è interamente contenuto in un blocco, si parla di organizzazione **unspanned**. Se un record può essere diviso tra più blocchi, si parla di **spanned**. In caso di record a lunghezza fissa $L_R$ e blocchi di dimensione $L_B$, il **fattore di blocco** (numero di record per blocco) è calcolato come: $f = \lfloor L_B / L_R \rfloor$
 
 L'organizzazione interna di una pagina prevede solitamente un **dizionario di pagina** e una **parte utile**. Una struttura comune prevede due stack che crescono in direzioni opposte: uno stack per il dizionario (puntatori alle ennuple $\*t1, \*t2, \dots$) e uno stack per i dati effettivi ($t1, t2, \dots$). Questo permette di gestire record di lunghezza variabile. La pagina include anche informazioni di controllo della struttura fisica e del file system, oltre a un bit di parità per il controllo degli errori.
 
@@ -174,7 +174,8 @@ Analizziamo un esercizio numerico con 8 record dotati delle seguenti chiavi: 240
 * Posizione 4: ospita 447004, ma collide con 405154.
 * Posizione 5: ospita 281425.
 * Posizione 6: ospita 449726.
-* Posizione 7: ospita 281267. Le chiavi 453900 e 405154 rimangono inizialmente "escluse" dalla tavola principale.
+* Posizione 7: ospita 281267.
+	* Le chiavi 453900 e 405154 rimangono inizialmente "escluse" dalla tavola principale.
 
 Per la **gestione delle collisioni**, si impiegano diverse tecniche:
 
@@ -202,7 +203,6 @@ Le stime statistiche confermano che all'aumentare del fattore di blocco $F$, la 
 * Se $F = 10$, il costo scende a $1,345$.
 
 In conclusione, il file hash è l'organizzazione più efficiente per l'accesso puntuale (uguaglianza), con un costo medio vicino all'unità. Tuttavia, non è adatto a ricerche per intervalli e tende a degradare se lo spazio diventa saturo. Per ovviare alla rigidità delle dimensioni, si ricorre a tecniche di **hashing dinamico**, come l'hashing estendibile o lineare, che permettono al file di adattarsi alla variazione del numero di record nel tempo.
-
 
 ## Analisi delle collisioni e organizzazione delle strutture di accesso
 
@@ -250,18 +250,18 @@ Negli indici densi si possono usare puntatori ai blocchi (più compatti) o punta
 Sia $L$ il numero di record, $B$ la dimensione del blocco, $R$ la lunghezza del record, $K$ la lunghezza della chiave e $P$ la lunghezza dell'indirizzo. Si definiscono le seguenti formule:
 
 * Fattore di blocco del file: $B/R$
-* Numero di blocchi del file: $N\_F = L / (B/R)$
+* Numero di blocchi del file: $N_F = L / (B/R)$
 * Fattore di blocco dell'indice: $B/(K+P)$
-* Numero di blocchi per un indice denso: $N\_D = L / (B/(K+P))$
-* Numero di blocchi per un indice sparso: $N\_S = N\_F / (B/(K+P))$
+* Numero di blocchi per un indice denso: $N_D = L / (B/(K+P))$
+* Numero di blocchi per un indice sparso: $N_S = N_F / (B/(K+P))$
 
 Considerando un esempio con $L = 1.000.000$, $B = 4KB$, $R = 100B$, $K = 4B$ e $P = 4B$, otteniamo:
 
 * $B/R = 40$ record per blocco.
-* $N\_F = 1.000.000 / 40 = 25.000$ blocchi.
+* $N_F = 1.000.000 / 40 = 25.000$ blocchi.
 * $B/(K+P) = 4000 / 8 = 500$ record indice per blocco.
-* $N\_D = 1.000.000 / 500 = 2.000$ blocchi.
-* $N\_S = 25.000 / 500 = 50$ blocchi.
+* $N_D = 1.000.000 / 500 = 2.000$ blocchi.
+* $N_S = 25.000 / 500 = 50$ blocchi.
 
 L'indice sparso risulta significativamente più piccolo ($50$ blocchi contro i $25.000$ del file), facilitando enormemente la ricerca. Gli indici garantiscono un accesso diretto efficiente (puntuale e per intervalli) e una scansione sequenziale ordinata. Tuttavia, rendono inefficienti le modifiche, gli inserimenti e le eliminazioni a causa della rigidità dell'ordinamento. Per mitigare questi problemi si utilizzano blocchi di overflow, marcature per l'eliminazione (_tombstones_), riempimento parziale o riorganizzazioni periodiche.
 
@@ -269,14 +269,14 @@ L'indice sparso risulta significativamente più piccolo ($50$ blocchi contro i $
 
 Poiché gli indici sono file ordinati, è possibile costruire indici sugli indici per evitare scansioni sequenziali tra i blocchi dell'indice stesso. Questo crea una struttura multilivello dove l'indice di livello superiore è sempre primario e sparso rispetto a quello inferiore. Il processo prosegue fino a ottenere un livello composto da un solo blocco (la radice).
 
-Il numero di blocchi al livello $j$ è dato da: $N\_j = N\_{j-1} / (B/(K+P))$ Il numero di blocchi a cui un blocco fa riferimento è detto _fan-out_. Negli indici multilivello la profondità è solitamente ridotta (tra 3 e 5). Con un fan-out di $500$, un indice denso di $2.000$ blocchi richiede solo 3 livelli ($N\_1=2000, N\_2=4, N\_3=1$), mentre uno sparso di $50$ blocchi ne richiede solo 2 ($N\_1=50, N\_2=1$).
+Il numero di blocchi al livello $j$ è dato da: $N_j = N_{j-1} / (B/(K+P))$ Il numero di blocchi a cui un blocco fa riferimento è detto _fan-out_. Negli indici multilivello la profondità è solitamente ridotta (tra 3 e 5). Con un fan-out di $500$, un indice denso di $2.000$ blocchi richiede solo 3 livelli ($N_1=2000, N_2=4, N_3=1$), mentre uno sparso di $50$ blocchi ne richiede solo 2 ($N_1=50, N_2=1$).
 
 I DBMS moderni utilizzano strutture più sofisticate come i **B-tree** per gestire l'elevata dinamicità. Un B-tree è un albero di ricerca bilanciato in cui ogni nodo corrisponde a un blocco. Caratteristiche principali:
 
 * Mantenimento del perfetto bilanciamento (foglie allo stesso livello).
 * Riempimento parziale dei nodi (mediamente $70%$, con un minimo garantito del $50%$).
 * In un albero di ordine $P$, ogni nodo ha fino a $P$ figli e $P-1$ etichette ordinate.
-* L'i-esimo sottoalbero contiene chiavi $K$ tali che $K\_{i-1} \leq K < K\_i$.
+* L'i-esimo sottoalbero contiene chiavi $K$ tali che $K_{i-1} \leq K < K_i$.
 
 Negli inserimenti, se una foglia è piena, avviene uno **split** (divisione del nodo) che può propagarsi verso l'alto fino alla radice. Le eliminazioni possono causare un **merge** (fusione di nodi) se il riempimento scende sotto la soglia.
 
@@ -286,3 +286,67 @@ Si distinguono due varianti:
 2. **B tree**: Le chiavi e i riferimenti ai dati possono trovarsi anche nei nodi intermedi e non vengono ripetuti nelle foglie.
 
 Il costo di ricerca in queste strutture è pari alla profondità dell'albero. Grazie alla bufferizzazione della radice e dei primi livelli, il costo reale di un accesso diretto scende spesso a soli $2$ o $3$ accessi fisici.
+
+# Organizzazione fisica ed esecuzione delle interrogazioni
+
+L'architettura di un sistema di gestione di basi di dati (DBMS) è strutturata per trasformare una richiesta espressa in un linguaggio dichiarativo ad alto livello in operazioni fisiche sulla memoria secondaria. Il processo segue una gerarchia precisa di moduli: il **Gestore delle interrogazioni** riceve istruzioni in linguaggio SQL e determina la strategia di esecuzione (scansione, accesso diretto o ordinamento). Questa strategia viene passata al **Gestore dei metodi d'accesso**, che effettua una cosiddetta "lettura virtuale". Questo livello interagisce con il **Gestore del buffer**, responsabile del coordinamento tra memoria principale e secondaria tramite "letture fisiche". Il comando giunge infine al **Gestore della memoria secondaria**, che opera direttamente sui dispositivi di memorizzazione fisica.
+
+L'esecuzione e l'ottimizzazione delle interrogazioni sono affidate al **Query Processor**, o Ottimizzatore. La necessità di questo modulo deriva dal concetto di ==indipendenza dei dati==: le interrogazioni SQL descrivono insiemi di ennuple con pochissima proceduralità, lasciando al sistema il compito di scegliere la migliore strategia realizzativa tra diverse alternative possibili. Il **processo di esecuzione** si articola in fasi **sequenziali**:
+
+1. **Analisi lessicale, sintattica e semantica**: trasforma il codice SQL in un'espressione algebrica, verificando la correttezza rispetto allo schema contenuto nel **Catalogo**.
+2. **Ottimizzazione algebrica**: applica trasformazioni all'espressione algebrica per renderla più efficiente.
+3. **Ottimizzazione basata sui costi**: trasforma l'espressione algebrica ottimizzata in un **piano di accesso** (o piano di esecuzione), consultando le strutture fisiche e i profili delle relazioni memorizzati nel Catalogo.
+
+Il **Catalogo** contiene i cosiddetti "Profili" delle relazioni, ovvero informazioni quantitative aggiornate periodicamente (tramite comandi come `update statistics`). Tali profili includono la cardinalità di ciascuna relazione, le dimensioni delle ennuple e dei singoli valori, il numero di valori distinti degli attributi e i valori minimi e massimi. Questi dati sono fondamentali nella fase finale dell'ottimizzazione per stimare i costi delle operazioni e le dimensioni dei risultati intermedi.
+
+## Dall'SQL all'algebra e ottimizzazione euristica
+
+Un'interrogazione SQL viene semplificata nei suoi componenti fondamentali: il prodotto cartesiano (clausola `FROM`), la selezione (clausola `WHERE`) e la proiezione (clausola `SELECT`). 
+
+Ad esempio, la query: `SELECT A , E FROM R1, R3, R2 WHERE C=D AND B=20 AND F=G AND I>2` può essere tradotta nel predicato algebrico: $\pi_{AE}(\sigma_{C=D \wedge B=20 \wedge F=G \wedge I>2}((R1 \bowtie R2) \bowtie R3))$
+
+Le interrogazioni vengono rappresentate graficamente tramite **alberi**, dove le foglie sono i dati (relazioni o file) e i nodi intermedi sono gli operatori (prima algebrici, poi operatori di accesso effettivi). L'ottimizzazione algebrica utilizza euristiche basate sulla nozione di equivalenza: due espressioni sono equivalenti se producono lo stesso risultato per ogni istanza della base di dati. Il DBMS cerca l'espressione equivalente meno costosa seguendo l'euristica fondamentale di eseguire selezioni e proiezioni il prima possibile per ridurre le dimensioni dei risultati intermedi. Questo concetto è noto come "push selections down" e "push projections down".
+
+Le regole specifiche per l'ottimizzazione algebrica includono:
+
+* Decomporre le selezioni congiuntive in selezioni atomiche successive.
+* ==Anticipare il più possibile le selezioni, specialmente le più selettive.==
+* ==Combinare prodotti cartesiani e selezioni per formare join, riordinando se necessario gli operandi==.
+* ==Anticipare le proiezioni==, anche introducendone di nuove, per limitare la dimensione dei record nei risultati intermedi (particolarmente utile se i risultati vengono materializzati).
+
+## Esecuzione delle operazioni 
+
+I DBMS offrono operatori fisici che implementano gli operatori algebrici. Gli operatori fondamentali sono la **scansione** e l'**accesso diretto**, seguiti da operazioni di livello più alto come l'_ordinamento_ e il _join_.
+
+==La **Scansione** consiste nell'accesso sequenziale a una tabella.== Permette la lettura completa, la selezione su qualunque predicato, la proiezione (senza eliminazione di duplicati) e la gestione delle ennuple correnti (inserimento, modifica, eliminazione). I metodi offerti sono `open`, `next`, `read`, `modify`, `insert`, `delete` e `close`. Il **costo** è **lineare** rispetto al **numero di blocchi** del file, ovvero $O(N)$.
+
+==L'**Accesso diretto** è possibile solo se supportato da strutture fisiche come indici o hash.== L'accesso basato su indice è utile per selezioni puntuali ($A_{i}=v$) o su intervallo ($v_{1} \leq A_{i} \leq v_{2}$), a patto che l'indice sia selettivo (ossia che il risultato contenga poche ennuple rispetto alla relazione di partenza). Il **costo** ha **due** componenti: la _profondità dell'indice_ (logaritmica) e l'_accesso ai record effettivi_ (che dipende dalla selettività). In caso di **selezione congiuntiva** con più indici disponibili, il sistema può usare l'indice più selettivo e valutare l'altra condizione successivamente, oppure usare entrambi gli indici per ottenere liste di indirizzi ed eseguirne l'intersezione. Se gli indirizzi sono ai record, l'intersezione identifica esattamente i record cercati; se sono ai blocchi, identifica i blocchi potenzialmente utili. Per la **selezione disgiuntiva**, **se entrambi i campi sono selettivi e indicizzati**, si esegue l'**unione** dei risultati; **se anche uno solo non è selettivo**, l'uso dell'indice è **inutile** e si preferisce la scansione sequenziale.
+
+Il costo degli indici su campi non chiave è composto dalla profondità dell'indice e il costo dell'accesso ai record:
+
+* **Indice secondario**: i record sono sparpagliati, quindi potrebbe servire un accesso per ogni record trovato.
+* **Indice primario**: i record sono fisicamente consecutivi, quindi il costo è approssimativamente pari al numero di record trovati diviso il fattore di blocco.
+
+L'**Accesso diretto basato su hash** è estremamente efficiente per interrogazioni puntuali, con un costo approssimabile a una costante, ma non per ricerche su intervallo. Per predicati congiuntivi e disgiuntivi, vale lo stesso discorso fatto per gli indici.
+
+## Ordinamento e Merge-Sort esterno
+
+L'ordinamento è un'operazione cruciale per produrre risultati ordinati (`ORDER BY`), eliminare duplicati (`DISTINCT`), preparare raggruppamenti (`GROUP BY`) o join. Poiché le basi di dati spesso superano la dimensione della memoria principale, si utilizza il **Merge-sort esterno**.
+
+L'algoritmo tradizionale con tre buffer (due di input e uno di output) segue un approccio "bottom-up":
+
+1. Si divide il file in porzioni che entrano in memoria.
+2. Si ordina ogni porzione in memoria e la si scrive su disco (creazione dei _run_).
+3. Si fondono (_merge_) le porzioni a coppie fino a ordinare l'intero file. Il costo complessivo per un file di $N$ blocchi è circa $2 \times N \times \log_{2}N$ accessi al disco, poiché ogni passo di merge richiede di leggere e scrivere l'intero file.
+
+Se è disponibile molta memoria (molte pagine di buffer $P$), le prestazioni migliorano riducendo il numero di passi di merge. Inizialmente si ordinano run composti da $P$ blocchi. Successivamente, si esegue un merge a più vie, fondendo contemporaneamente tante porzioni quante sono le pagine del buffer disponibili. Con $P$ buffer, è possibile ordinare un file in:
+
+* Una passata se $P \geq N$.
+* Due passate se $P^{2} \geq N$ (ovvero $P \geq \sqrt{N}$), con un costo di $3 \times N$ (si legge il file, lo si scrive ordinato in run, si rilegge per il merge finale senza memorizzare il risultato intermedio).
+* Tre passate se $P^{3} \geq N$. 
+
+==In generale, con $i$ passate si può ordinare un file di $P^{i}$ blocchi. Il numero di passate necessario è il più piccolo intero $i$ per cui $P \geq \sqrt[i]{N}$.==
+
+Ad esempio, per un file di $N=10.000.000$ di blocchi con un buffer di $10.000$ pagine ($100MB$), si potrebbero ordinare $10.000$ blocchi alla volta ottenendo $1000$ porzioni ordinate. Fondendo queste porzioni con un merge a $1000$ vie, l'ordinamento si completerebbe in un unico passo di merge (due passate totali). In sintesi, se $P \geq \sqrt{N}$, l'operazione richiede $3 \times N$ accessi.
+
+> Vedere Esercizio 5 di [[26/02/2013]{.underline}](https://tagd.inf.uniroma3.it/compitiPDF/20130226bdIIsoluz.pdf)
