@@ -23,7 +23,7 @@ Nell'analisi di un DBMS didattico come **SimpleDB**, è possibile osservare una
 * **Log**: registra sistematicamente ogni operazione effettuata per garantire l'affidabilità e la possibilità di ripristino del sistema.
 * **File**: costituisce il livello più basso che si occupa della lettura e scrittura effettiva delle pagine sul disco fisico.
 
-La distinzione tra **memoria principale** e **memoria secondaria** è fondamentale per comprendere le prestazioni di un database. I programmi possono fare riferimento esclusivamente a dati presenti nella memoria principale. Tuttavia, le basi di dati devono necessariamente risiedere nella memoria secondaria per due ragioni critiche: le dimensioni, spesso superiori alla capacità della RAM, e la persistenza, ovvero la necessità che i dati sopravvivano allo spegnimento del sistema. Di conseguenza, ogni dato memorizzato su disco deve essere trasferito nella memoria principale per poter essere elaborato; questa dinamica di trasferimento è ciò che definisce i concetti di gerarchia di memoria.
+La distinzione tra **memoria principale** e **memoria secondaria** è fondamentale per comprendere le prestazioni di un database. I programmi possono fare riferimento esclusivamente a dati presenti nella memoria principale. Tuttavia, le basi di dati devono necessariamente risiedere nella memoria secondaria per due ragioni critiche: le dimensioni e la persistenza dei dati. Di conseguenza, ogni dato memorizzato su disco deve essere trasferito nella memoria principale per poter essere elaborato.
 
 I dispositivi di memoria secondaria sono organizzati fisicamente in **blocchi** di lunghezza fissa, solitamente nell'ordine di alcuni KB. Specularmente, nella memoria centrale viene allocata un'area della stessa dimensione chiamata **pagina**. Le operazioni fondamentali sui dispositivi si limitano alla lettura di un blocco dal disco verso una pagina e alla scrittura di una pagina su un blocco del disco. Nella pratica tecnica, i termini "blocco" e "pagina" sono spesso usati come sinonimi. Il sistema operativo assegna un numero univoco a ogni blocco del disco, garantendo che ogni unità di memorizzazione abbia un indirizzo univoco all'interno del sistema di elaborazione.
 
@@ -31,11 +31,13 @@ Le prestazioni di un disco tradizionale (meccanico a rotazione) sono determinate
 
 1. **Tempo di posizionamento della testina (seek time)**: il tempo necessario per muovere la testina sulla traccia corretta, mediamente compreso tra 4ms e 15ms.
 2. **Tempo di latenza (rotational delay)**: il tempo necessario affinché il settore corretto ruoti sotto la testina, variabile tra 2ms e 8ms in base alla velocità di rotazione (da 4K a 15K giri al minuto).
-3. **Tempo di trasferimento di un blocco**: il tempo effettivo di passaggio dei dati, che rappresenta solo una frazione di millisecondo data la velocità di trasferimento tra 100 e 600MB/s. Complessivamente, un accesso richiede mediamente non meno di qualche millisecondo.
+3. **Tempo di trasferimento di un blocco**: il tempo effettivo di passaggio dei dati, che rappresenta solo una frazione di millisecondo data la velocità di trasferimento tra 100 e 600MB/s.
 
-Il costo di un accesso alla memoria secondaria è di quattro o più ordini di grandezza superiore rispetto alle operazioni in memoria centrale: parliamo di millisecondi contro decimi o centesimi di microsecondo. Per questo motivo, nelle applicazioni definite "I/O bound", il costo totale dipende quasi esclusivamente dal numero di accessi al disco. È importante notare che leggere un singolo bit o un intero blocco ha lo stesso costo temporale. Inoltre, l'accesso a blocchi contigui è meno oneroso, specialmente se il disco esegue il _prefetching_, ovvero la lettura anticipata di intere tracce memorizzate in una cache interna.
+==Complessivamente, un accesso richiede mediamente non meno di qualche millisecondo.==
 
-Le **Unità a Stato Solido (SSD)** introducono caratteristiche differenti: essendo prive di parti meccaniche, offrono un accesso diretto a costo uniforme, risultando molto più veloci dei dischi tradizionali per gli accessi casuali. Tuttavia, il loro costo per gigabyte è ancora superiore e le prestazioni in scrittura tendono a peggiorare nel tempo poiché il numero di riscritture è limitato e il sistema deve distribuire i dati in posizioni diverse per preservare l'integrità delle celle. Nonostante la velocità superiore, l'accesso a un SSD resta comunque di vari ordini di grandezza più lento della RAM (decine o centinaia di microsecondi contro decimi o centesimi di microsecondo).
+==Il costo di un accesso alla memoria secondaria è di quattro o più ordini di grandezza superiore rispetto alle operazioni in memoria centrale==: parliamo di millisecondi contro decimi o centesimi di microsecondo. Per questo motivo, ==nelle applicazioni definite "I/O bound", il costo totale dipende== quasi esclusivamente ==dal numero di accessi al disco==. È importante notare che leggere un singolo bit o un intero blocco ha lo **stesso** costo temporale. Inoltre, l'_accesso a blocchi contigui è meno oneroso_, specialmente se il disco esegue il _prefetching_, ovvero la lettura anticipata di intere tracce memorizzate in una cache interna.
+
+Le **Unità a Stato Solido (SSD)** introducono caratteristiche differenti: essendo prive di parti meccaniche, **offrono un accesso diretto a costo uniforme**, risultando molto più veloci dei dischi tradizionali per gli accessi casuali. Tuttavia, il loro costo per gigabyte è ancora superiore e le prestazioni in scrittura tendono a peggiorare nel tempo poiché il **numero di riscritture è limitato** e il sistema deve distribuire i dati in posizioni diverse per preservare l'integrità delle celle. Nonostante la velocità superiore, l'accesso a un SSD resta comunque di vari ordini di grandezza più lento della RAM (decine o centinaia di microsecondi contro decimi o centesimi di microsecondo).
 
 Il **File System** del sistema operativo gestisce la memoria secondaria tipicamente su due livelli:
 
@@ -45,8 +47,8 @@ Il **File System** del sistema operativo gestisce la memoria secondaria tipica
 Un DBMS può interagire con il file system in diversi modi:
 
 * **A livello di blocchi**: garantisce un controllo completo sul posizionamento fisico, permettendo di distribuire oggetti su più dispositivi. Lo svantaggio è l'estrema complessità amministrativa e la necessità di avere dischi dedicati esclusivamente al DBMS.
-* **A livello di file**: è più semplice da realizzare (un file per ogni tabella), ma il DBMS perde la visibilità sulla reale allocazione dei blocchi e sul buffer, con un impatto negativo sulle prestazioni.
-* **Soluzione intermedia**: è l'approccio più frequente. Il DBMS usa il file system in modo limitato per creare/eliminare file e gestire flussi di blocchi, ma mantiene il controllo diretto sull'organizzazione interna, decidendo come i record sono distribuiti nei blocchi e quale sia la struttura interna ai blocchi stessi.
+* **A livello di file**: è più **semplice** da realizzare (un file per ogni tabella), **ma il DBMS perde la visibilità sulla reale allocazione dei blocchi** e sul buffer, con un impatto negativo sulle prestazioni.
+* **Soluzione intermedia**: è l'==approccio più frequente==. Il DBMS usa il file system in modo limitato per creare/eliminare file e gestire flussi di blocchi, ma mantiene il controllo diretto sull'organizzazione interna, decidendo come i record sono distribuiti nei blocchi e quale sia la struttura interna ai blocchi stessi.
 
 Nella mappatura standard delle relazioni sui dischi, il DBMS gestisce lo spazio allocato come un unico grande contenitore virtuale di memoria secondaria. Vengono creati file di grandi dimensioni che possono ospitare l'intera base di dati o diverse relazioni. È possibile che un singolo file contenga dati di più relazioni o, viceversa, che le ennuple di una singola relazione siano distribuite su file diversi. All'interno di questo spazio, il DBMS costruisce le strutture fisiche necessarie. Sebbene non sia una regola assoluta, spesso ogni blocco è dedicato esclusivamente alle ennuple di un'unica relazione.
 
@@ -163,7 +165,7 @@ Una tecnica radicalmente differente per l'accesso efficiente ai dati è rapprese
 
 L'obiettivo di una tavola hash è l'accesso diretto a un record tramite il valore di una chiave. Se lo spazio dei possibili valori della chiave è paragonabile al numero di record effettivi (ad esempio, 1000 studenti con matricole da 1 a 1000), è possibile utilizzare un semplice array dove l'indice corrisponde alla chiave. Tuttavia, quando i possibili valori sono molto più numerosi di quelli utilizzati (ad esempio, 40 studenti con matricole a 6 cifre, che generano un milione di combinazioni potenziali), l'uso di un array diretto causerebbe un enorme spreco di memoria.
 
-La soluzione consiste nell'utilizzare una **funzione hash**, che associa a ogni valore della chiave un "indirizzo" in uno spazio di dimensione contenuta, paragonabile al numero di record da memorizzare. Poiché lo spazio delle chiavi è vasto e quello degli indirizzi è limitato, la funzione non può essere iniettiva, rendendo inevitabili le **collisioni** (ovvero quando chiavi diverse corrispondono allo stesso indirizzo). Una buona funzione hash deve distribuire i valori in modo casuale e uniforme per minimizzare tali eventi. Un esempio didattico è la funzione modulo: $K \pmod{n}$, dove $n$ è la dimensione della tavola.
+La soluzione consiste nell'utilizzare una **funzione hash**, che associa a ogni valore della chiave un "indirizzo" in uno spazio di dimensione contenuta, paragonabile al numero di record da memorizzare. Poiché lo spazio delle chiavi è vasto e quello degli indirizzi è limitato, la funzione [non]{.underline} può essere iniettiva, rendendo inevitabili le **collisioni** (ovvero quando chiavi diverse corrispondono allo stesso indirizzo). Una buona funzione hash deve distribuire i valori in modo casuale e uniforme per minimizzare tali eventi. Un esempio didattico è la funzione modulo: $K \pmod{n}$, dove $n$ è la dimensione della tavola.
 
 Si consideri un diagramma di flusso che illustra il processo: a sinistra abbiamo l'insieme delle chiavi (es. "John Smith", "Lisa Smith", "Sam Doe", "Sandra Dee"). Al centro agisce la **hash function** che mappa queste stringhe in valori numerici a destra, definiti **hashes**. In questo schema specifico, "Lisa Smith" viene mappata all'indirizzo `01`, "Sam Doe" al `04`, mentre "John Smith" e "Sandra Dee" collidono entrambi sull'indirizzo `02` (evidenziato graficamente per indicare l'anomalia). Gli indirizzi disponibili vanno da `00` a `15`.
 
@@ -175,7 +177,8 @@ Analizziamo un esercizio numerico con 8 record dotati delle seguenti chiavi: 240
 * Posizione 5: ospita 281425.
 * Posizione 6: ospita 449726.
 * Posizione 7: ospita 281267.
-	* Le chiavi 453900 e 405154 rimangono inizialmente "escluse" dalla tavola principale.
+
+> Le chiavi 453900 e 405154 rimangono inizialmente "escluse" dalla tavola principale.
 
 Per la **gestione delle collisioni**, si impiegano diverse tecniche:
 
@@ -183,7 +186,7 @@ Per la **gestione delle collisioni**, si impiegano diverse tecniche:
 2. **Tabella di overflow**: i record collidenti vengono inseriti in un'area separata gestita tramite liste collegate.
 3. **Funzioni hash alternative**: si applica una seconda funzione in caso di collisione.
 
-Il "costo" di queste strutture viene valutato in termini di accessi medi. In un esempio con 40 record e una tavola da 50 posizioni, si potrebbero avere 20 record senza collisioni, 5 gruppi di collisioni da 2 record, 2 gruppi da 3 e 1 gruppo da 4. Il numero medio di accessi si calcola come: $(28 \times 1 + 8 \times 2 + 3 \times 3 + 1 \times 4) / 40 = 1,425$ Sebbene le collisioni siano quasi sempre presenti, la probabilità di collisioni multiple decresce rapidamente al crescere della loro numerosità, mantenendo la molteplicità media molto bassa.
+==Il "costo" di queste strutture viene valutato in termini di accessi medi.== In un esempio con 40 record e una tavola da 50 posizioni, si potrebbero avere 20 record senza collisioni, 5 gruppi di collisioni da 2 record, 2 gruppi da 3 e 1 gruppo da 4. Il numero medio di accessi si calcola come: $(28 \times 1 + 8 \times 2 + 3 \times 3 + 1 \times 4) / 40 = 1,425$. Sebbene le collisioni siano quasi sempre presenti, la probabilità di collisioni multiple decresce rapidamente al crescere della loro numerosità, mantenendo la molteplicità media molto bassa.
 
 Il concetto si estende al **File Hash** organizzato per blocchi. Qui, ogni "indirizzo" della funzione hash punta a un intero blocco che può contenere più record (fattore di blocco $F$). Lo spazio degli indirizzi si riduce: se $F = 10$, per 50 posizioni totali si possono usare solo 5 blocchi (funzione $\pmod{5}$ invece di $\pmod{50}$). Le collisioni che eccedono la capacità del blocco (_overflow_) sono tipicamente gestite tramite il collegamento di nuovi blocchi.
 
@@ -197,12 +200,12 @@ Il confronto tra tavola hash e file hash mostra che quest'ultimo è più efficie
 * Tavola hash (50 posizioni): 12 record in overflow, costo medio 1,425.
 * File hash (5 blocchi da 10): solo 2 record in overflow, costo medio 1,05. Questa efficienza superiore deriva dal fatto che il blocco funge da "ammortizzatore" per le collisioni locali.
 
-Le stime statistiche confermano che all'aumentare del fattore di blocco $F$, la lunghezza media delle catene di overflow e il costo di accesso diminuiscono drasticamente, anche con coefficienti di riempimento elevati. Ad esempio, con un riempimento del $90%$ ($T/(F \times B) = 0.9$):
+Le stime statistiche confermano che all'aumentare del fattore di blocco $F$, la lunghezza media delle catene di overflow e il costo di accesso diminuiscono drasticamente, anche con coefficienti di riempimento elevati. Ad esempio, con un riempimento del $90\%$ ($T/(F \times B) = 0.9$):
 
 * Se $F = 1$, il costo è $5,495$.
 * Se $F = 10$, il costo scende a $1,345$.
 
-In conclusione, il file hash è l'organizzazione più efficiente per l'accesso puntuale (uguaglianza), con un costo medio vicino all'unità. Tuttavia, non è adatto a ricerche per intervalli e tende a degradare se lo spazio diventa saturo. Per ovviare alla rigidità delle dimensioni, si ricorre a tecniche di **hashing dinamico**, come l'hashing estendibile o lineare, che permettono al file di adattarsi alla variazione del numero di record nel tempo.
+In conclusione, il file hash è l'organizzazione più efficiente per l'accesso puntuale, con un costo medio vicino all'unità. Tuttavia, non è adatto a ricerche per intervalli e tende a degradare se lo spazio diventa saturo. Per ovviare alla rigidità delle dimensioni, si ricorre a tecniche di **hashing dinamico**, come l'hashing estendibile o lineare, che permettono al file di adattarsi alla variazione del numero di record nel tempo.
 
 ## Analisi delle collisioni e organizzazione delle strutture di accesso
 
@@ -235,7 +238,7 @@ Le strutture fisiche si dividono in primarie (che determinano il posizionamento 
 
 Un indice $I$ è a sua volta un file composto da record a due campi: la chiave e l'indirizzo (del record o del blocco in $F$). L'indice è sempre ordinato secondo i valori della chiave. Si distinguono due tipologie principali:
 
-* **Indice Primario**: definito su un campo che rispetta l'ordinamento fisico della memorizzazione del file (detto anche indice di cluster). Esiste al più un indice primario per file.
+* **Indice Primario**: definito su un campo che rispetta l'ordinamento fisico della memorizzazione del file (detto anche indice di cluster). ==Esiste al più un indice primario per file.==
 * **Indice Secondario**: definito su un campo il cui ordinamento è diverso da quello di memorizzazione. Un file può avere molteplici indici secondari.
 
 Un'ulteriore distinzione riguarda la copertura dei valori:
@@ -257,9 +260,9 @@ Sia $L$ il numero di record, $B$ la dimensione del blocco, $R$ la lunghezza del 
 
 Considerando un esempio con $L = 1.000.000$, $B = 4KB$, $R = 100B$, $K = 4B$ e $P = 4B$, otteniamo:
 
-* $B/R = 40$ record per blocco.
-* $N_F = 1.000.000 / 40 = 25.000$ blocchi.
-* $B/(K+P) = 4000 / 8 = 500$ record indice per blocco.
+* Fattore di blocco $B/R = 40$ record per blocco.
+* Numero di blocchi $N_F = 1.000.000 / 40 = 25.000$ blocchi.
+* Fattore di blocco dell'indice $B/(K+P) = 4000 / 8 = 500$ record indice per blocco.
 * $N_D = 1.000.000 / 500 = 2.000$ blocchi.
 * $N_S = 25.000 / 500 = 50$ blocchi.
 
@@ -325,7 +328,7 @@ I DBMS offrono operatori fisici che implementano gli operatori algebrici. Gli op
 Il costo degli indici su campi non chiave è composto dalla profondità dell'indice e il costo dell'accesso ai record:
 
 * **Indice secondario**: i record sono sparpagliati, quindi potrebbe servire un accesso per ogni record trovato.
-* **Indice primario**: i record sono fisicamente consecutivi, quindi il costo è approssimativamente pari al numero di record trovati diviso il fattore di blocco.
+* **Indice primario**: i ==record sono fisicamente consecutivi==, quindi il **costo** è approssimativamente **pari al numero di record** trovati **diviso il fattore di blocco**.
 
 L'**Accesso diretto basato su hash** è estremamente efficiente per interrogazioni puntuali, con un costo approssimabile a una costante, ma non per ricerche su intervallo. Per predicati congiuntivi e disgiuntivi, vale lo stesso discorso fatto per gli indici.
 
@@ -350,3 +353,67 @@ Se è disponibile molta memoria (molte pagine di buffer $P$), le prestazioni mig
 Ad esempio, per un file di $N=10.000.000$ di blocchi con un buffer di $10.000$ pagine ($100MB$), si potrebbero ordinare $10.000$ blocchi alla volta ottenendo $1000$ porzioni ordinate. Fondendo queste porzioni con un merge a $1000$ vie, l'ordinamento si completerebbe in un unico passo di merge (due passate totali). In sintesi, se $P \geq \sqrt{N}$, l'operazione richiede $3 \times N$ accessi.
 
 > Vedere Esercizio 5 di [[26/02/2013]{.underline}](https://tagd.inf.uniroma3.it/compitiPDF/20130226bdIIsoluz.pdf)
+
+# Algoritmi di Join
+
+I sistemi di gestione di basi di dati (DBMS) sono progettati per tradurre le interrogazioni logiche in operazioni fisiche attraverso una gerarchia di operatori. Alla base di questa struttura si collocano gli operatori fondamentali di scansione e accesso diretto, seguiti dall'ordinamento. Al vertice della complessità computazionale si trova il join (R⋈S), descritto come l'operatore più interessante, caratteristico e oneroso dell'algebra relazionale. Il costo di questa operazione è dominato dal tempo di calcolo e, soprattutto, dagli accessi alla memoria secondaria (I/O). Per ottimizzare il processo, l'ottimizzatore seleziona la metodologia fisica più adatta in base alle strutture di supporto (indici), alla dimensione dei buffer disponibili e alla selettività della query. Le tre strategie principali analizzate sono il nested-loop join, il merge-join e l'hash-join.
+
+## Nested-loop Join
+
+Il nested-loop join, o join a cicli annidati, rappresenta l'approccio più intuitivo e generale per l'esecuzione di un join. Il principio fondamentale consiste nell'esaminare tutte le coppie di ennuple dei due operandi per verificare la condizione di join. Il sistema distingue operativamente tra una "Tabella esterna" e una "Tabella interna". La procedura prevede l'esecuzione di una scansione della prima relazione;** per ogni ennupla identificata** (ad esempio, un record con valore del campo di join pari ad 'a'), **viene attivata una procedura di ricerca sulla tabella interna**, che può risolversi in una scansione completa o in un accesso diretto tramite indici.
+
+### Nested-loop senza indice
+
+==In assenza di indici, il join richiede la scansione sequenziale dei blocchi==. Poiché il costo del processamento in memoria centrale è trascurabile rispetto alla lettura dei blocchi dal disco, l'algoritmo opera a livello di blocco. In uno scenario minimale con soli due buffer a disposizione, il sistema carica un blocco della relazione esterna R1​ e lo confronta con ogni blocco della relazione interna R2​ caricato sequenzialmente. 
+Per ogni blocco di $R_{1}$, l'intera relazione $R_{2}$ viene scansionata integralmente. Il ==costo totale== in termini di accessi alla memoria secondaria per relazioni composte da $B_{1}$ e $B_{2}$ blocchi ==è espresso dalla formula: $B_{1}+B_{1} \times B_{2}$==.
+
+L'efficienza migliora drasticamente aumentando il numero di pagine di buffer $P$. Dedicando $B$ pagine di buffer alla relazione esterna $R_{1}$, il sistema può caricare contemporaneamente $B$ blocchi. Durante una singola scansione di $R_{2}$, ogni ennupla letta viene confrontata con tutte le ennuple degli $B$ blocchi di $R_{1}$ residenti in memoria, riducendo il numero di scansioni della tabella interna di un fattore $B$. ==Il costo ottimizzato è: $N_{1}+(N_{1}/B \times N_{2})$==.
+
+Considerando un esempio numerico con $R_{1}$ composto da $N_{1}=1000$ blocchi, $R_{2}$ da $N_{2}=500$ blocchi e un buffer con $P=101$ pagine:
+
+* Senza buffer grandi (leggendo un blocco alla volta): $1000+1000 \times 500 = 501.000$ accessi.
+* Con buffer (dedicando $B=100$ pagine a $R_{1}$): $1000+(1000/100 \times 500) = 1000+10 \times 500 = 6000$ accessi.
+
+### Nested-loop con indice
+
+Se la tabella interna dispone di un indice sul campo di join, la scansione sequenziale viene sostituita da un accesso diretto. Per ogni ennupla della relazione esterna $R_{1}$, il sistema interroga l'indice di $R_{2}$. Si consideri la seguente organizzazione fisica:
+
+1. **Relazione $R_{1}$**: contenuta in blocchi come il 901, che ospita le ennuple (X01, AF), (Y42, LB), (W73, CF), (Z55, GC), o il blocco 802 con (Y01, EF), (X42, CC), (W93, CB), (W54, LB).
+2. **Indice su $R_{2}$**: una struttura ad albero con radice nel blocco 42 (chiavi CC, GD). Il secondo livello presenta i nodi 83 (chiavi AC, BC), 81 (chiave EF) e 85 (chiave HC). Le foglie gestiscono i puntatori: foglia 91 (AA, AB, AC), 92 (BA, BB, BC), 93 (CA, CB, CC), 95 (EA, EC, EF), 96 (GA, GC, GD), 97 (HA, HB, HC) e 98 (LA, LB).
+3. **Relazione $R_{2}$**: blocchi dati compresi tra 420 e 429.
+
+Il flusso di esecuzione prevede che per il record (X01, AF) di $R_{1}$, il sistema navighi l'indice partendo dalla radice 42, scenda al nodo 83, raggiunga la foglia 91 e infine legga il blocco dati 423 di $R_{2}$. Per il record (Y42, LB), il percorso attraversa la radice 42, il nodo 85, la foglia 98 e termina nel blocco dati 422. 
+
+> Il ==costo== dell'algoritmo base con $L_{1}$ ennuple in $R_{1}$ e un indice di profondità $I_{2}$ ==è: $N_{1}+L_{1} \times (I_{2}+1)$.== Se il buffer **mantiene stabilmente i livelli più alti dell'indice** (radice e primo livello intermedio), poiché utilizzati ripetutamente per ogni ricerca, il costo si riduce: $N_{1}+L_{1} \times (I_{2}-2+1)$.
+
+## Merge-join e ottimizzazione dell'ordinamento
+
+==Il merge-join sfrutta l'ordinamento fisico dei dati.== Se entrambi i file sono ordinati sul campo di join, il sistema esegue **due scansioni parallele** (scan sinistro e scan destro). I puntatori avanzano in modo coordinato confrontando i valori correnti: se un valore è inferiore all'altro, il relativo puntatore avanza; se sono uguali, viene prodotto il risultato del join.
+ I costi variano sensibilmente in base allo stato dei file:
+
+* **File già fisicamente ordinati**: il costo è la somma dei blocchi, $N_{1}+N_{2}$.
+* **File disordinati (ordinamento a due passate)**: il costo è $3 \times (N_{1}+N_{2})$. L'ottimizzazione consiste nell'eseguire la prima passata di ordinamento (creazione dei run) per entrambi i file e integrare la seconda passata (merge) direttamente con l'operazione di join.
+* **File disordinati con indici**: il costo è circa $L_{1}+L_{2}$ più il costo della scansione delle foglie degli indici.
+
+## Hash-join e partizionamento in Bucket
+
+L'hash-join applica una funzione hash ai campi di join per distribuire i record in partizioni chiamate bucket. L'obiettivo è distribuire i record in bucket tali che un record di R1​ possa accoppiarsi solo con record di R2​ appartenenti al bucket omologo (stesso valore hash). L'algoritmo prevede una fase di pre-processamento dove ogni file viene letto e distribuito in $P$ liste di blocchi. Quando un buffer è pieno, viene scritto su disco come blocco dell'opportuno bucket.
+
+> **Non è necessaria una struttura hash preesistente.**
+
+Durante la scansione del primo file, le ennuple vengono indirizzate ai bucket in base al valore hash:
+
+* I record (A 901) e (C 901) vengono indirizzati al Buffer 01 e scritti nel **Bucket 01**.
+* I record (G 902), (M 909) e (Q 902) vengono indirizzati al **Bucket 02**.
+* I record (B 903) e (P 903) finiscono nel **Bucket 03**.
+* I record (D 904), (H 904), (L 907), (N 907) e (S 905) vengono indirizzati al **Bucket 04**.
+
+Lo stesso processo viene applicato al secondo file (con chiavi come X901, Y910, Z911). Una volta completata la partizione, il sistema confronta solo i bucket omologhi. Sfruttando i buffer, il costo complessivo è dato da due passate di lettura e una di scrittura: $3 \times (B_{1}+B_{2})$. ==L'algoritmo è ottimale se le partizioni di almeno un file entrano interamente in memoria, condizione verificata se $P^{2} > \min(B_{1}, B_{2})$.==
+
+## Confronto tra le strategie e criteri di scelta
+
+L'ottimizzatore seleziona la strategia più efficiente basandosi sui profili delle relazioni:
+
+* **Risultato piccolo (alta selettività)**: il **nested-loop con indice** è preferibile per il ridotto numero di accessi diretti.
+* **Operandi grandi di dimensione simile**: si opta per il **merge-join**, poiché è immune ai problemi di distribuzione non uniforme dei valori hash (skew) che potrebbero saturare i bucket nell'hash-join.
+* **Operandi grandi di dimensioni diverse**: l'**hash-join** è superiore perché permette di caricare interamente in memoria le porzioni della tabella più piccola, ottimizzando la fase finale di confronto.
