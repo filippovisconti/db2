@@ -22,10 +22,21 @@ $endfor$
 % -------------------------------------------------------------------
 \usepackage{xcolor}
 \usepackage{amsmath,amssymb,amsthm}
-\usepackage{mathtools} % better math
-\usepackage{thmtools}  % flexible theorem styling
-\usepackage{listings}  % code snippets
+\usepackage{mathtools}   % better math
+\usepackage{thmtools}    % flexible theorem styling
+\usepackage{listings}    % code snippets
 \usepackage{inconsolata} % nice monospace font for code
+\usepackage{etoolbox}    % environment patching
+\usepackage{needspace}   % prevents bad page breaks
+\usepackage{microtype}   % advanced typography and spacing
+% -------------------------------------------------------------------
+% Typography tweaks (Prevent widows and orphans)
+% -------------------------------------------------------------------
+\clubpenalty=10000
+\widowpenalty=10000
+\displaywidowpenalty=10000
+
+\usepackage{fancyhdr}    % professional headers and footers
 
 $if(geometry)$
 \usepackage[$for(geometry)$$geometry$$sep$,$endfor$]{geometry}
@@ -77,7 +88,9 @@ $hypersetup.latex()$
 % -------------------------------------------------------------------
 % Code listings style
 % -------------------------------------------------------------------
+% Style 1: Executable code (SQL, Python, etc.)
 \lstdefinestyle{csnotes}{
+  backgroundcolor=\color{black!5},
   basicstyle=\ttfamily\small,
   keywordstyle=\color{blue}\bfseries,
   commentstyle=\color{green!50!black}\itshape,
@@ -93,7 +106,44 @@ $hypersetup.latex()$
   showstringspaces=false,
   captionpos=b
 }
+
+% Style 2: Terminal / Execution Logs (Muted, no syntax coloring)
+\lstdefinestyle{rawlog}{
+  basicstyle=\ttfamily\scriptsize, 
+  backgroundcolor=\color{black!5}, 
+  keywordstyle=\color{black},      
+  commentstyle=\color{black},      
+  stringstyle=\color{black},       
+  numbers=none,                    
+  frame=single,
+  rulecolor=\color{black!20},      
+  breaklines=true,
+  captionpos=b
+}
+
+% Set the default style to csnotes
 \lstset{style=csnotes}
+
+% Require at least 6 lines of space before starting a code block to prevent orphans
+\BeforeBeginEnvironment{lstlisting}{\par\needspace{6\baselineskip}}
+
+% -------------------------------------------------------------------
+% Headers and Footers
+% -------------------------------------------------------------------
+\pagestyle{fancy}
+\fancyhf{} % Clear default headers/footers
+\fancyhead[L]{Filippo Visconti} % Current section on the left
+\fancyhead[R]{$if(title)$$title$$endif$} % Document title on the right
+\fancyfoot[C]{\thepage} % Page number at the bottom center
+\renewcommand{\headrulewidth}{0.4pt} % Adds a neat line under the header
+\renewcommand{\footrulewidth}{0.4pt} % Adds a neat line under the header
+
+% Ensure the first page of a chapter/document doesn't have the heavy header
+\fancypagestyle{plain}{
+  \fancyhf{}
+  \fancyfoot[C]{\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
 
 % -------------------------------------------------------------------
 % Title info
@@ -102,7 +152,6 @@ $if(title)$
 \title{$title$$if(thanks)$\thanks{$thanks$}$endif$}
 $endif$
 $if(subtitle)$
-\usepackage{etoolbox}
 \makeatletter
 \providecommand{\subtitle}[1]{%
   \apptocmd{\@title}{\par {\large #1 \par}}{}{}
@@ -131,10 +180,10 @@ $for(include-before)$
 $include-before$
 $endfor$
 
-$if(toc)$
-\setcounter{tocdepth}{$toc-depth$}
-\tableofcontents
-$endif$
+% $if(toc)$
+% \setcounter{tocdepth}{$toc-depth$}
+% \tableofcontents
+% $endif$
 
 $if(has-frontmatter)$
 \mainmatter

@@ -7,7 +7,7 @@ template:
 ---
 # Introduzione e Architettura del Sistema
 
-Il presente elaborato ha come obiettivo l'esplorazione, la misurazione e l'ottimizzazione delle prestazioni di un database relazionale sottoposto a un carico di lavoro intensivo. Lo scopo è dimostrare come la corretta progettazione delle strutture fisiche (indici B-Tree) consenta di abbattere i costi computazionali e le operazioni di I/O.
+Questo elaborato mostra la misurazione e l'ottimizzazione delle prestazioni di un database relazionale sottoposto a query specifiche, scelte per tentare di osservare il cambiamento delle strategie scelte dall'ottimizzatore. Lo scopo è dimostrare come la corretta progettazione delle strutture fisiche (indici B-Tree) consenta di abbattere i costi computazionali e di I/O.
 
 Per garantire l'isolamento e la riproducibilità dell'ambiente di test, l'infrastruttura è stata implementata tramite containerizzazione.
 Come RDBMS è stato scelto _PostgreSQL 16_; per l'amministrazione _pgAdmin 4_, in esecuzione tramite Docker su un Apple MacBook Pro 16 con processore Apple M1 Pro e 16 GB di RAM.
@@ -20,7 +20,7 @@ Il progetto simula il database, in versione semplificata, di un sistema informat
 	
 Ove possibile, si è cercato di ottimizzare la dimensione dei tipi di dato. Ad esempio, per i campi `credits` e `grade` è stato utilizzato il tipo di dato `SMALLINT` (2 byte) anziché il canonico `INTEGER` (4 byte).
 
-``` sql
+``` sql  {style=csnotes}
 -- Creazione tabella Corsi
 CREATE TABLE courses (
     course_id SERIAL PRIMARY KEY,
@@ -54,17 +54,132 @@ CREATE TABLE exams (
 
 # Generazione dei dati
 
-Al fine di generare un volume di dati sufficiente a innescare i meccanismi di ottimizzazione avanzata del DBMS (es. _Parallel Sequential Scan_), è stato sviluppato uno script Python.
+Al fine di generare un volume di dati sufficiente a innescare i meccanismi di ottimizzazione avanzata del DBMS è stato utlizzato il seguente script Python. Si utilizza la libreria Faker per generare dati fittizi ma realistici.
+Lo script non esegue istruzioni `INSERT` singole. Sfrutta invece la funzione `execute_values` della libreria `psycopg2`, implementando una tecnica di _Batch Insert_, raggruppando le tuple in blocchi per ridurre i tempi di esecuzione.
 
-Per superare i colli di bottiglia tipici degli inserimenti massivi (I/O di rete e logging transazionale), lo script non esegue istruzioni `INSERT` singole. Sfrutta invece la funzione `execute_values` della libreria `psycopg2`, implementando una tecnica di _Batch Insert_. Questo approccio raggruppa le tuple in blocchi (es. 20.000 record alla volta), abbattendo drasticamente i tempi di latenza e permettendo di generare 1.050.100 record totali in poche decine di secondi.
+\scriptsize
+```python  {style=csnotes}
+# NOTA BENE: SEZIONE DI IMPORT E CONFIGURAZIONE OMESSA
 
-==Vedasi script allegato==
+NUM_COURSES = 100
+NUM_STUDENTS = 50000
+NUM_EXAMS = 15000000
+
+CLEAR_TABLES_ON_START = True
+
+def clear_tables(conn):
+    with conn.cursor() as cur:
+        cur.execute("TRUNCATE TABLE exams, students, courses RESTART IDENTITY CASCADE;")
+    conn.commit()
+    print("Tabelle svuotate e contatori resettati con successo.\n")
+
+def generate_courses(conn):
+    print(f"Generazione di {NUM_COURSES} corsi...")
+    courses = []
+    departments = ["Informatica", "Matematica", "Fisica", "Ingegneria", "Economia"]
+    for _ in range(NUM_COURSES):
+        courses.append(
+            (
+                fake.unique.bothify(text="???-####").upper(),
+                fake.catch_phrase()[:100],
+                random.choice([6, 9, 12]),
+                random.choice(departments),
+            )
+        )
+
+    with conn.cursor() as cur:
+        execute_values(
+            cur,
+            "INSERT INTO courses (course_code, course_name, credits, department) VALUES %s",
+            courses,
+        )
+    conn.commit()
+
+
+def generate_students(conn):
+    print(f"Generazione di {NUM_STUDENTS} studenti...")
+    students = []
+    for _ in range(NUM_STUDENTS):
+        students.append(
+            (
+                fake.unique.bothify(text="MATR#######"),
+                fake.first_name(),
+                fake.last_name(),
+                random.randint(2015, 2024),
+            )
+        )
+
+    batch_size = 10000
+    with conn.cursor() as cur:
+        for i in range(0, len(students), batch_size):
+            execute_values(
+                cur,
+                "INSERT INTO students (matricola, first_name, last_name, enrollment_year) VALUES %s",
+                students[i : i + batch_size],
+            )
+    conn.commit()
+
+
+def generate_exams(conn):
+    print(f"Generazione di {NUM_EXAMS} esami (Tabella dei Fatti)...")
+    exams = []
+    start_date = date(2015, 1, 1)
+
+    for _ in range(NUM_EXAMS):
+        random_days = random.randint(0, 3200)
+        exam_date = start_date + timedelta(days=random_days)
+
+        exams.append(
+            (
+                random.randint(1, NUM_STUDENTS),
+                random.randint(1, NUM_COURSES),
+                exam_date,
+                random.randint(18, 31),
+            )
+        )
+
+    batch_size = 20000
+    with conn.cursor() as cur:
+        for i in range(0, len(exams), batch_size):
+            execute_values(
+                cur,
+                "INSERT INTO exams (student_id, course_id, exam_date, grade) VALUES %s",
+                exams[i : i + batch_size],
+            )
+            if (i % 200000 == 0) and i > 0:
+                print(f"... inseriti {i} esami")
+    conn.commit()
+
+
+def main():
+    start_time = time.time()
+    try:
+        conn = psycopg2.connect(**PARAMS)
+
+        if CLEAR_TABLES_ON_START:
+            clear_tables(conn)
+
+        generate_courses(conn)
+        generate_students(conn)
+        generate_exams(conn)
+
+        conn.close()
+        end_time = time.time()
+        print(f"\nDB inizializzato in {end_time - start_time} secondi.")
+
+    except Exception as e:
+        print(f"Errore: {e}")
+
+if __name__ == "__main__":
+    main()
+```
+\normalsize
 
 # Analisi del Workload e Metodologia di Misurazione
 
 Per testare la reattività del sistema, sono state progettate tre query di complessità crescente:
 
-``` sql 
+``` sql  {style=csnotes}
 -- Query 1> Estrazione degli esami superati con lode (31) in un dipartimento specifico 
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT c.course_name, e.exam_date, e.grade
@@ -96,26 +211,23 @@ GROUP BY s.student_id, s.matricola, s.first_name, s.last_name;
 
 La sola misurazione del tempo di esecuzione (`Execution Time`) è stata scartata in quanto metrica instabile, soggetta a fluttuazioni derivanti dal carico del sistema operativo ospite. Per valutare l'efficienza reale degli algoritmi di accesso ai dati, è stato utilizzato il comando diagnostico: `EXPLAIN (ANALYZE, BUFFERS)` L'attenzione si è concentrata sulla metrica dei **Buffers**, che permette di quantificare l'esatto ammontare di I/O generato (suddiviso in `hit` per la lettura in RAM e `read` per l'accesso al disco fisico), rivelando il vero costo architetturale dell'interrogazione.
 
-```csv
-Gather  (cost=1003.54..199994.21 rows=241272 width=40) (actual time=13.873..425.415 rows=245523 
-				loops=1)
+\tiny
+```csv {style=rawlog}
+Gather  (cost=1003.54..199994.21 rows=241272 width=40) (actual time=13.873..425.415 rows=245523 loops=1)
   Workers Planned: 2
   Workers Launched: 2
   Buffers: shared hit=11283 read=84381
-  ->  Hash Join  (cost=3.54..174867.01 rows=100530 width=40) (actual time=12.894..385.933 
-  								rows=81841 loops=3)
+  ->  Hash Join  (cost=3.54..174867.01 rows=100530 width=40) (actual time=12.894..385.933 rows=81841 loops=3)
         Hash Cond: (e.course_id = c.course_id)
         Buffers: shared hit=11283 read=84381
-        ->  Parallel Seq Scan on exams e  (cost=0.00..173667.49 rows=437086 width=10) (actual 
-																						time=12.568..343.008 rows=356537 loops=3)
+        ->  Parallel Seq Scan on exams e  (cost=0.00..173667.49 rows=437086 width=10) (actual time=12.568..343.008 rows=356537 loops=3)
               Filter: (grade = 31)
               Rows Removed by Filter: 4643463
               Buffers: shared hit=11161 read=84381
         ->  Hash  (cost=3.25..3.25 rows=23 width=38) (actual time=0.070..0.070 rows=23 loops=3)
               Buckets: 1024  Batches: 1  Memory Usage: 10kB
               Buffers: shared hit=6
-              ->  Seq Scan on courses c  (cost=0.00..3.25 rows=23 width=38) (actual 
-			  																	time=0.038..0.052 rows=23 loops=3)
+              ->  Seq Scan on courses c  (cost=0.00..3.25 rows=23 width=38) (actual time=0.038..0.052 rows=23 loops=3)
                     Filter: ((department)::text = 'Informatica'::text)
                     Rows Removed by Filter: 77
                     Buffers: shared hit=6
@@ -125,51 +237,40 @@ Planning Time: 0.491 ms
 JIT:
   Functions: 45
   Options: Inlining false, Optimization false, Expressions true, Deforming true
-  Timing: Generation 3.963 ms, Inlining 0.000 ms, Optimization 2.424 ms, Emission 35.090 ms, 
-  				Total 41.477 ms
+  Timing: Generation 3.963 ms, Inlining 0.000 ms, Optimization 2.424 ms, Emission 35.090 ms, Total 41.477 ms
 Execution Time: 438.012 ms
 
 //////////////////////////////////////////////////////////////////
 
-Gather Merge  (cost=227412.20..264397.41 rows=316994 width=52) (actual time=467.966..523.407 
-							 rows=373213 loops=1)
+Gather Merge  (cost=227412.20..264397.41 rows=316994 width=52) (actual time=467.966..523.407 rows=373213 loops=1)
   Workers Planned: 2
   Workers Launched: 2
   Buffers: shared hit=12715 read=84189, temp read=2924 written=2933
-  ->  Sort  (cost=226412.17..226808.42 rows=158497 width=52) (actual time=451.360..462.212 
-  						rows=124404 loops=3)
+  ->  Sort  (cost=226412.17..226808.42 rows=158497 width=52) (actual time=451.360..462.212 rows=124404 loops=3)
         Sort Key: e.exam_date DESC
         Sort Method: external merge  Disk: 8072kB
         Buffers: shared hit=12715 read=84189, temp read=2924 written=2933
         Worker 0:  Sort Method: external merge  Disk: 7600kB
         Worker 1:  Sort Method: external merge  Disk: 7720kB
-        ->  Hash Join  (cost=1537.25..207304.71 rows=158497 width=52) (actual 
-												time=44.818..414.077 rows=124404 loops=3)
+        ->  Hash Join  (cost=1537.25..207304.71 rows=158497 width=52) (actual time=44.818..414.077 rows=124404 loops=3)
               Hash Cond: (e.course_id = c.course_id)
               Buffers: shared hit=12641 read=84189
-              ->  Hash Join  (cost=1533.00..206866.77 rows=158497 width=22) (actual 
-			  											time=21.005..368.954 rows=124404 loops=3)
+              ->  Hash Join  (cost=1533.00..206866.77 rows=158497 width=22) (actual time=21.005..368.954 rows=124404 loops=3)
                     Hash Cond: (e.student_id = s.student_id)
                     Buffers: shared hit=12577 read=84189
-                    ->  Parallel Seq Scan on exams e  (cost=0.00..204917.69 rows=158497 
-																	width=14) (actual time=0.065..292.460 rows=124404 loops=3)
-                          Filter: ((grade >= 28) AND (exam_date >= '2023-01-01'::date) AND (
-						  											exam_date <= '2023-12-31'::date))
+                    ->  Parallel Seq Scan on exams e  (cost=0.00..204917.69 rows=158497 width=14) (actual time=0.065..292.460 rows=124404 loops=3)
+                          Filter: ((grade >= 28) AND (exam_date >= '2023-01-01'::date) AND (exam_date <= '2023-12-31'::date))
                           Rows Removed by Filter: 4875596
                           Buffers: shared hit=11353 read=84189
-                    ->  Hash  (cost=908.00..908.00 rows=50000 width=16) (actual 
-																		time=20.773..20.774 rows=50000 loops=3)
+                    ->  Hash  (cost=908.00..908.00 rows=50000 width=16) (actual time=20.773..20.774 rows=50000 loops=3)
                           Buckets: 65536  Batches: 1  Memory Usage: 2856kB
                           Buffers: shared hit=1224
-                          ->  Seq Scan on students s  (cost=0.00..908.00 rows=50000 width=16) 
-						  																	(actual time=0.017..6.867 rows=50000 loops=3)
+                          ->  Seq Scan on students s  (cost=0.00..908.00 rows=50000 width=16) (actual time=0.017..6.867 rows=50000 loops=3)
                                 Buffers: shared hit=1224
-              ->  Hash  (cost=3.00..3.00 rows=100 width=38) (actual time=23.734..23.734
-			  																											rows=100 loops=3)
+              ->  Hash  (cost=3.00..3.00 rows=100 width=38) (actual time=23.734..23.734 rows=100 loops=3)
                     Buckets: 1024  Batches: 1  Memory Usage: 16kB
                     Buffers: shared hit=6
-                    ->  Seq Scan on courses c  (cost=0.00..3.00 rows=100 width=38) 
-																			(actual time=23.681..23.701 rows=100 loops=3)
+                    ->  Seq Scan on courses c  (cost=0.00..3.00 rows=100 width=38) (actual time=23.681..23.701 rows=100 loops=3)
                           Buffers: shared hit=6
 Planning:
   Buffers: shared hit=10
@@ -177,8 +278,7 @@ Planning Time: 0.355 ms
 JIT:
   Functions: 63
   Options: Inlining false, Optimization false, Expressions true, Deforming true
-  Timing: Generation 4.498 ms, Inlining 0.000 ms, Optimization 2.212 ms, Emission 68.889 ms, 
-  	Total 75.599 ms
+  Timing: Generation 4.498 ms, Inlining 0.000 ms, Optimization 2.212 ms, Emission 68.889 ms, Total 75.599 ms
 Execution Time: 538.339 ms
 
 
@@ -231,10 +331,12 @@ JIT:
 Execution Time: 861.766 ms
 
 ```
+\normalsize
 
 Dopo aver eseguito una prima volta le query, è stato eseguito il comando: `ANALYZE exams, students, courses;`. Questa operazione ha forzato il DBMS ad analizzare i dati appena inseriti e ad aggiornare la tabella di catalogo `pg_statistic`, fornendo al _Cost-Based Optimizer_ (CBO) le stime corrette per calcolare i piani di esecuzione.
 
-```csv
+\tiny
+```csv {style=rawlog}
 Gather  (cost=1003.54..201201.21 rows=252772 width=40) (actual time=18.325..501.288 rows=245523 loops=1)
   Workers Planned: 2
   Workers Launched: 2
@@ -352,9 +454,12 @@ JIT:
   Timing: Generation 4.780 ms, Inlining 0.000 ms, Optimization 1.883 ms, Emission 49.437 ms, Total 56.100 ms
 Execution Time: 832.184 ms
 ```
+
+\normalsize
+
 Tuttavia, le strategie sono rimaste le stesse e non si notano particolari cambiamenti né in termini di tempo, né in termini di scelta di operazioni.
 
-## 4. Strategia di Ottimizzazione (Strutture Fisiche)
+## Strategia di Ottimizzazione (Strutture Fisiche)
 
 Per mitigare le inefficienze riscontrate nei piani di esecuzione base (caratterizzati da pesanti _Sequential Scan_ sull'intera tabella degli esami), è stata implementata una strategia di ottimizzazione basata su indici B-Tree.
 
@@ -395,7 +500,9 @@ Il sistema ha dovuto elaborare un totale di $95.589$ blocchi di memoria (pagine 
 Per risolvere questa inefficienza strutturale, è stato implementato un indice B-Tree sulla chiave esterna della tabella dei fatti: `CREATE INDEX idx_exams_student_id ON exams(student_id);`.
 La successiva esecuzione ha mostrato un radicale cambio di paradigma algoritmico da parte del Query Planner.
 
-```csv
+\tiny
+
+```csv {style=rawlog}
 HashAggregate  (cost=1179.46..1179.47 rows=1 width=71) (actual time=1.038..1.041 rows=1 loops=1)
   Group Key: s.student_id
   Batches: 1  Memory Usage: 24kB
@@ -426,6 +533,8 @@ Planning:
 Planning Time: 0.721 ms
 Execution Time: 1.170 ms
 ```
+\normalsize
+
 ![Query 3 graph](figures/3.svg)
 
 L'accesso sequenziale è stato completamente scartato in favore di un approccio combinato: un **Bitmap Index Scan** seguito da un  **Bitmap Heap Scan**. L'indice B-Tree ha permesso al motore di individuare istantaneamente i puntatori fisici delle tuple richieste, costruendo una mappa in memoria (bitmap) usata poi per accedere direttamente ai blocchi dati pertinenti.
@@ -435,13 +544,96 @@ I vantaggi misurati sono evidenti: il consumo di buffer è precipitato a `shared
 L'introduzione dell'indice ha ridotto il tempo di esecuzione del $99.8\%$, ma il risultato più rilevante è la riduzione del fattore di lettura dei blocchi dati di circa **326 volte** (da 95.589 a 293 buffer). 
 
 ## Query 1 e 2
-==MANCA Q2==
+
+L'interrogazione Q2 introduce una duplice sfida per il motore del database: un filtraggio combinato (su un range temporale e una soglia di voto) e, soprattutto, un ordinamento cronologico dei risultati (`ORDER BY e.exam_date DESC`).
+
+\tiny
+
+```csv {style=rawlog}
+QUERY 1:////////////////////////////////////////////////////
+Gather  (cost=1003.54..201200.51 rows=252770 width=40) (actual time=29.342..803.883 rows=245523 loops=1)
+  Workers Planned: 2
+  Workers Launched: 2
+  Buffers: shared hit=12388 read=83276
+  ->  Hash Join  (cost=3.54..174923.51 rows=105321 width=40) (actual time=21.425..737.082 rows=81841 loops=3)
+        Hash Cond: (e.course_id = c.course_id)
+        Buffers: shared hit=12388 read=83276
+        ->  Parallel Seq Scan on exams e  (cost=0.00..173667.00 rows=457917 width=10) (actual time=21.091..698.052 rows=356537 loops=3)
+              Filter: (grade = 31)
+              Rows Removed by Filter: 4643463
+              Buffers: shared hit=12266 read=83276
+        ->  Hash  (cost=3.25..3.25 rows=23 width=38) (actual time=0.071..0.072 rows=23 loops=3)
+              Buckets: 1024  Batches: 1  Memory Usage: 10kB
+              Buffers: shared hit=6
+              ->  Seq Scan on courses c  (cost=0.00..3.25 rows=23 width=38) (actual time=0.043..0.055 rows=23 loops=3)
+                    Filter: ((department)::text = 'Informatica'::text)
+                    Rows Removed by Filter: 77
+                    Buffers: shared hit=6
+Planning:
+  Buffers: shared hit=76 read=5
+Planning Time: 2.015 ms
+JIT:
+  Functions: 45
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 5.166 ms, Inlining 0.000 ms, Optimization 3.882 ms, Emission 57.795 ms, Total 66.843 ms
+Execution Time: 819.035 ms
+
+///////////////////////////////////////////////////////////////////////////////
+QUERY 2:
+Gather Merge  (cost=210522.60..246795.40 rows=310888 width=52) (actual time=1233.593..1315.599 rows=373213 loops=1)
+  Workers Planned: 2
+  Workers Launched: 2
+  Buffers: shared hit=1307 read=96656 written=14, temp read=2923 written=2932
+  ->  Sort  (cost=209522.58..209911.19 rows=155444 width=52) (actual time=1182.057..1194.266 rows=124404 loops=3)
+        Sort Key: e.exam_date DESC
+        Sort Method: external merge  Disk: 7728kB
+        Buffers: shared hit=1307 read=96656 written=14, temp read=2923 written=2932
+        Worker 0:  Sort Method: external merge  Disk: 7848kB
+        Worker 1:  Sort Method: external merge  Disk: 7808kB
+        ->  Hash Join  (cost=19278.14..190802.12 rows=155444 width=52) (actual time=124.003..1126.190 rows=124404 loops=3)
+              Hash Cond: (e.course_id = c.course_id)
+              Buffers: shared hit=1291 read=96656 written=14
+              ->  Hash Join  (cost=19273.89..190372.54 rows=155444 width=22) (actual time=104.787..1076.919 rows=124404 loops=3)
+                    Hash Cond: (e.student_id = s.student_id)
+                    Buffers: shared hit=1227 read=96656 written=14
+                    ->  Parallel Bitmap Heap Scan on exams e  (cost=17740.89..188431.46 rows=155444 width=14) (actual time=85.449..981.625 rows=124404 loops=3)
+                          Recheck Cond: ((exam_date >= '2023-01-01'::date) AND (exam_date <= '2023-12-31'::date))
+                          Rows Removed by Index Recheck: 1583248
+                          Filter: (grade >= 28)
+                          Rows Removed by Filter: 310966
+                          Heap Blocks: exact=20661 lossy=11013
+                          Buffers: shared hit=3 read=96656 written=14
+                          ->  Bitmap Index Scan on idx_exams_date  (cost=0.00..17647.62 rows=1313919 width=0) (actual time=102.892..102.893 rows=1306111 loops=1)
+                                Index Cond: ((exam_date >= '2023-01-01'::date) AND (exam_date <= '2023-12-31'::date))
+                                Buffers: shared hit=3 read=1114
+                    ->  Hash  (cost=908.00..908.00 rows=50000 width=16) (actual time=19.108..19.109 rows=50000 loops=3)
+                          Buckets: 65536  Batches: 1  Memory Usage: 2856kB
+                          Buffers: shared hit=1224
+                          ->  Seq Scan on students s  (cost=0.00..908.00 rows=50000 width=16) (actual time=0.031..7.534 rows=50000 loops=3)
+                                Buffers: shared hit=1224
+              ->  Hash  (cost=3.00..3.00 rows=100 width=38) (actual time=19.052..19.052 rows=100 loops=3)
+                    Buckets: 1024  Batches: 1  Memory Usage: 16kB
+                    Buffers: shared hit=6
+                    ->  Seq Scan on courses c  (cost=0.00..3.00 rows=100 width=38) (actual time=18.994..19.019 rows=100 loops=3)
+                          Buffers: shared hit=6
+Planning:
+  Buffers: shared hit=17 read=8
+Planning Time: 3.530 ms
+JIT:
+  Functions: 69
+  Options: Inlining false, Optimization false, Expressions true, Deforming true
+  Timing: Generation 12.946 ms, Inlining 0.000 ms, Optimization 3.899 ms, Emission 52.995 ms, Total 69.840 ms
+Execution Time: 1335.699 ms
+
+```
+\normalsize
 
 Contrariamente all'abbattimento drastico dei costi osservato nella Q3, l'analisi dei piani di esecuzione post-ottimizzazione per Q1 non mostra differenze. Nonostante la l'istanziazione degli indici, il Query Planner ha deliberatamente scelto di ignorarli, prediligendo un metodo di accesso sequenziale:
 
 > `-> Parallel Seq Scan on exams e (cost=0.00..173667.00 rows=457917 width=10) (actual time=21.091..698.052 rows=356537 loops=3)`
 
 ![Query 1 graph](figures/1.svg)
+
 ![Query 2 graph](figures/2.svg)
 
 A seguito di approfondimenti, è emerso che questo scenario non rappresenta un fallimento della strategia di tuning, bensì una dimostrazione dell'operato del _Cost-Based Optimizer_ (CBO) di PostgreSQL. La decisione del motore di esecuzione ruota attorno alla selettività del predicato. Sfruttare un indice è computazionalmente vantaggioso solo quando è altamente selettivo, mentre le query in questione lo erano poco. 

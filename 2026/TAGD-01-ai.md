@@ -308,7 +308,7 @@ Un'interrogazione SQL viene semplificata nei suoi componenti fondamentali: il pr
 
 Ad esempio, la query: `SELECT A , E FROM R1, R3, R2 WHERE C=D AND B=20 AND F=G AND I>2` può essere tradotta nel predicato algebrico: $\pi_{AE}(\sigma_{C=D \wedge B=20 \wedge F=G \wedge I>2}((R1 \bowtie R2) \bowtie R3))$
 
-Le interrogazioni vengono rappresentate graficamente tramite **alberi**, dove le foglie sono i dati (relazioni o file) e i nodi intermedi sono gli operatori (prima algebrici, poi operatori di accesso effettivi). L'ottimizzazione algebrica utilizza euristiche basate sulla nozione di equivalenza: due espressioni sono equivalenti se producono lo stesso risultato per ogni istanza della base di dati. Il DBMS cerca l'espressione equivalente meno costosa seguendo l'euristica fondamentale di eseguire selezioni e proiezioni il prima possibile per ridurre le dimensioni dei risultati intermedi. Questo concetto è noto come "push selections down" e "push projections down".
+Le interrogazioni vengono rappresentate graficamente tramite **alberi**, dove le foglie sono i dati (relazioni o file) e i nodi intermedi sono gli operatori (prima algebrici, poi operatori di accesso effettivi). L'ottimizzazione algebrica utilizza euristiche basate sulla nozione di equivalenza: due espressioni sono equivalenti se producono lo stesso risultato per ogni istanza della base di dati. Il ==DBMS cerca l'espressione equivalente meno costosa== seguendo l'euristica fondamentale di eseguire selezioni e proiezioni il prima possibile per ridurre le dimensioni dei risultati intermedi. Questo concetto è noto come "==push selections down==" e "push projections down".
 
 Le regole specifiche per l'ottimizzazione algebrica includono:
 
@@ -321,16 +321,16 @@ Le regole specifiche per l'ottimizzazione algebrica includono:
 
 I DBMS offrono operatori fisici che implementano gli operatori algebrici. Gli operatori fondamentali sono la **scansione** e l'**accesso diretto**, seguiti da operazioni di livello più alto come l'_ordinamento_ e il _join_.
 
-==La **Scansione** consiste nell'accesso sequenziale a una tabella.== Permette la lettura completa, la selezione su qualunque predicato, la proiezione (senza eliminazione di duplicati) e la gestione delle ennuple correnti (inserimento, modifica, eliminazione). I metodi offerti sono `open`, `next`, `read`, `modify`, `insert`, `delete` e `close`. Il **costo** è **lineare** rispetto al **numero di blocchi** del file, ovvero $O(N)$.
+==La **Scansione** consiste nell'accesso sequenziale a una tabella.== Permette la lettura completa, la selezione su qualunque predicato, la proiezione (senza eliminazione di duplicati) e la gestione delle ennuple correnti (inserimento, modifica, eliminazione). I metodi offerti sono `open`, `next`, `read`, `modify`, `insert`, `delete` e `close`. ==Il **costo** è **lineare** rispetto al **numero di blocchi** del file==, ovvero $O(N)$.
 
-==L'**Accesso diretto** è possibile solo se supportato da strutture fisiche come indici o hash.== L'accesso basato su indice è utile per selezioni puntuali ($A_{i}=v$) o su intervallo ($v_{1} \leq A_{i} \leq v_{2}$), a patto che l'indice sia selettivo (ossia che il risultato contenga poche ennuple rispetto alla relazione di partenza). Il **costo** ha **due** componenti: la _profondità dell'indice_ (logaritmica) e l'_accesso ai record effettivi_ (che dipende dalla selettività). In caso di **selezione congiuntiva** con più indici disponibili, il sistema può usare l'indice più selettivo e valutare l'altra condizione successivamente, oppure usare entrambi gli indici per ottenere liste di indirizzi ed eseguirne l'intersezione. Se gli indirizzi sono ai record, l'intersezione identifica esattamente i record cercati; se sono ai blocchi, identifica i blocchi potenzialmente utili. Per la **selezione disgiuntiva**, **se entrambi i campi sono selettivi e indicizzati**, si esegue l'**unione** dei risultati; **se anche uno solo non è selettivo**, l'uso dell'indice è **inutile** e si preferisce la scansione sequenziale.
+==L'**Accesso diretto** è possibile solo se supportato da strutture fisiche come indici o hash.== L'accesso basato su indice è utile per selezioni puntuali ($A_{i}=v$) o su intervallo ($v_{1} \leq A_{i} \leq v_{2}$), a patto che l'indice sia selettivo (ossia che il risultato contenga poche ennuple rispetto alla relazione di partenza). ==Il **costo** ha **due** componenti: la _profondità dell'indice_ (logaritmica) e l'_accesso ai record effettivi_== (che dipende dalla selettività). In caso di **selezione congiuntiva** (AND) con più indici disponibili, il sistema può usare l'indice più selettivo e valutare l'altra condizione successivamente, oppure usare entrambi gli indici per ottenere liste di indirizzi ed eseguirne l'intersezione. Se gli indirizzi sono ai record, l'intersezione identifica esattamente i record cercati; se sono ai blocchi, identifica i blocchi potenzialmente utili. Per la **selezione disgiuntiva** (OR), **se entrambi i campi sono selettivi e indicizzati**, si esegue l'**unione** dei risultati; **se anche uno solo non è selettivo**, l'uso dell'indice è **inutile** e si preferisce la scansione sequenziale.
 
 Il costo degli indici su campi non chiave è composto dalla profondità dell'indice e il costo dell'accesso ai record:
 
 * **Indice secondario**: i record sono sparpagliati, quindi potrebbe servire un accesso per ogni record trovato.
-* **Indice primario**: i ==record sono fisicamente consecutivi==, quindi il **costo** è approssimativamente **pari al numero di record** trovati **diviso il fattore di blocco**.
+* **Indice primario**: i ==record sono fisicamente consecutivi==, quindi il **costo** è approssimativamente pari al **numero di record** trovati **diviso il fattore di blocco**.
 
-L'**Accesso diretto basato su hash** è estremamente efficiente per interrogazioni puntuali, con un costo approssimabile a una costante, ma non per ricerche su intervallo. Per predicati congiuntivi e disgiuntivi, vale lo stesso discorso fatto per gli indici.
+L'**Accesso diretto basato su hash** è estremamente efficiente per interrogazioni puntuali, con un costo approssimabile a una costante, ma **non** per ricerche su intervallo. Per predicati congiuntivi e disgiuntivi, vale lo stesso discorso fatto per gli indici.
 
 ## Ordinamento e Merge-Sort esterno
 
@@ -340,27 +340,34 @@ L'algoritmo tradizionale con tre buffer (due di input e uno di output) segue un 
 
 1. Si divide il file in porzioni che entrano in memoria.
 2. Si ordina ogni porzione in memoria e la si scrive su disco (creazione dei _run_).
-3. Si fondono (_merge_) le porzioni a coppie fino a ordinare l'intero file. Il costo complessivo per un file di $N$ blocchi è circa $2 \times N \times \log_{2}N$ accessi al disco, poiché ogni passo di merge richiede di leggere e scrivere l'intero file.
+3. Si fondono (_merge_) le porzioni a coppie fino a ordinare l'intero file.
 
-Se è disponibile molta memoria (molte pagine di buffer $P$), le prestazioni migliorano riducendo il numero di passi di merge. Inizialmente si ordinano run composti da $P$ blocchi. Successivamente, si esegue un merge a più vie, fondendo contemporaneamente tante porzioni quante sono le pagine del buffer disponibili. Con $P$ buffer, è possibile ordinare un file in:
+Il costo complessivo per un file di $N$ blocchi è circa $2 \times N \times \log_{2}N$ accessi al disco, poiché ogni passo di merge richiede di leggere e scrivere l'intero file.
+
+==Se è disponibile molta memoria (molte pagine di buffer $P$), le prestazioni migliorano riducendo il **numero di passi** di merge==. Inizialmente si ordinano run composti da $P$ blocchi. Successivamente, si esegue un **merge a più vie**, fondendo contemporaneamente tante porzioni quante sono le pagine del buffer disponibili. Con $P$ buffer, è possibile ordinare un file in:
 
 * Una passata se $P \geq N$.
-* Due passate se $P^{2} \geq N$ (ovvero $P \geq \sqrt{N}$), con un costo di $3 \times N$ (si legge il file, lo si scrive ordinato in run, si rilegge per il merge finale senza memorizzare il risultato intermedio).
+* Due passate se $P^{2} \geq N$ (ovvero $P \geq \sqrt{N}$).
+	* In questo caso ha un ==costo di $3 \times N$ ==:si legge il file, lo si scrive ordinato in run, si rilegge per il merge finale senza memorizzare il risultato intermedio.
 * Tre passate se $P^{3} \geq N$. 
 
 ==In generale, con $i$ passate si può ordinare un file di $P^{i}$ blocchi. Il numero di passate necessario è il più piccolo intero $i$ per cui $P \geq \sqrt[i]{N}$.==
 
-Ad esempio, per un file di $N=10.000.000$ di blocchi con un buffer di $10.000$ pagine ($100MB$), si potrebbero ordinare $10.000$ blocchi alla volta ottenendo $1000$ porzioni ordinate. Fondendo queste porzioni con un merge a $1000$ vie, l'ordinamento si completerebbe in un unico passo di merge (due passate totali). In sintesi, se $P \geq \sqrt{N}$, l'operazione richiede $3 \times N$ accessi.
+Ad esempio, per un file di $N=10.000.000$ di blocchi con un buffer di $10.000$ pagine ($100MB$), si potrebbero ordinare $10.000$ blocchi alla volta ottenendo $1000$ porzioni ordinate. Fondendo queste porzioni con un merge a $1000$ vie, l'ordinamento si completerebbe in un unico passo di merge (due passate totali). In sintesi, ==se $P \geq \sqrt{N}$, l'operazione richiede $3 \times N$ accessi==.
 
 > Vedere Esercizio 5 di [[26/02/2013]{.underline}](https://tagd.inf.uniroma3.it/compitiPDF/20130226bdIIsoluz.pdf)
 
 # Algoritmi di Join
 
-I sistemi di gestione di basi di dati (DBMS) sono progettati per tradurre le interrogazioni logiche in operazioni fisiche attraverso una gerarchia di operatori. Alla base di questa struttura si collocano gli operatori fondamentali di scansione e accesso diretto, seguiti dall'ordinamento. Al vertice della complessità computazionale si trova il join (R⋈S), descritto come l'operatore più interessante, caratteristico e oneroso dell'algebra relazionale. Il costo di questa operazione è dominato dal tempo di calcolo e, soprattutto, dagli accessi alla memoria secondaria (I/O). Per ottimizzare il processo, l'ottimizzatore seleziona la metodologia fisica più adatta in base alle strutture di supporto (indici), alla dimensione dei buffer disponibili e alla selettività della query. Le tre strategie principali analizzate sono il nested-loop join, il merge-join e l'hash-join.
+I sistemi di gestione di basi di dati (DBMS) sono progettati per tradurre le interrogazioni logiche in operazioni fisiche attraverso una gerarchia di operatori. Alla base di questa struttura si collocano gli operatori fondamentali di scansione e accesso diretto, seguiti dall'ordinamento. ==Al vertice della complessità computazionale si trova il join== ($R⋈S$), descritto come l'operatore più interessante, caratteristico e oneroso dell'algebra relazionale. Il costo di questa operazione è dominato dal tempo di calcolo e, soprattutto, dagli accessi alla memoria secondaria (I/O). Per ottimizzare il processo, l'ottimizzatore seleziona la metodologia fisica più adatta in base alle strutture di supporto (indici), alla dimensione dei buffer disponibili e alla selettività della query. Le tre strategie principali analizzate sono:
+
+1. nested-loop join,
+2. merge-join,
+3. hash-join.
 
 ## Nested-loop Join
 
-Il nested-loop join, o join a cicli annidati, rappresenta l'approccio più intuitivo e generale per l'esecuzione di un join. Il principio fondamentale consiste nell'esaminare tutte le coppie di ennuple dei due operandi per verificare la condizione di join. Il sistema distingue operativamente tra una "Tabella esterna" e una "Tabella interna". La procedura prevede l'esecuzione di una scansione della prima relazione;** per ogni ennupla identificata** (ad esempio, un record con valore del campo di join pari ad 'a'), **viene attivata una procedura di ricerca sulla tabella interna**, che può risolversi in una scansione completa o in un accesso diretto tramite indici.
+Il nested-loop join, o join a cicli annidati, rappresenta l'approccio più intuitivo e generale per l'esecuzione di un join. Il principio fondamentale consiste nell'esaminare tutte le coppie di ennuple dei due operandi per verificare la condizione di join. Il sistema distingue operativamente tra una "Tabella esterna" e una "Tabella interna". La procedura prevede l'esecuzione di una scansione della prima relazione: **per ogni ennupla identificata** (ad esempio, un record con valore del campo di join pari ad 'a'), **viene attivata una procedura di ricerca sulla tabella interna**, che può risolversi in una **scansione** completa o in un **accesso diretto** tramite indici.
 
 ### Nested-loop senza indice
 
@@ -376,28 +383,22 @@ Considerando un esempio numerico con $R_{1}$ composto da $N_{1}=1000$ blocchi, $
 
 ### Nested-loop con indice
 
-Se la tabella interna dispone di un indice sul campo di join, la scansione sequenziale viene sostituita da un accesso diretto. Per ogni ennupla della relazione esterna $R_{1}$, il sistema interroga l'indice di $R_{2}$. Si consideri la seguente organizzazione fisica:
+==Se la tabella interna dispone di un indice sul campo di join, la **scansione** sequenziale viene **sostituita da un accesso diretto**==. Per ogni ennupla della relazione esterna $R_{1}$, il sistema interroga l'indice di $R_{2}$. 
 
-1. **Relazione $R_{1}$**: contenuta in blocchi come il 901, che ospita le ennuple (X01, AF), (Y42, LB), (W73, CF), (Z55, GC), o il blocco 802 con (Y01, EF), (X42, CC), (W93, CB), (W54, LB).
-2. **Indice su $R_{2}$**: una struttura ad albero con radice nel blocco 42 (chiavi CC, GD). Il secondo livello presenta i nodi 83 (chiavi AC, BC), 81 (chiave EF) e 85 (chiave HC). Le foglie gestiscono i puntatori: foglia 91 (AA, AB, AC), 92 (BA, BB, BC), 93 (CA, CB, CC), 95 (EA, EC, EF), 96 (GA, GC, GD), 97 (HA, HB, HC) e 98 (LA, LB).
-3. **Relazione $R_{2}$**: blocchi dati compresi tra 420 e 429.
-
-Il flusso di esecuzione prevede che per il record (X01, AF) di $R_{1}$, il sistema navighi l'indice partendo dalla radice 42, scenda al nodo 83, raggiunga la foglia 91 e infine legga il blocco dati 423 di $R_{2}$. Per il record (Y42, LB), il percorso attraversa la radice 42, il nodo 85, la foglia 98 e termina nel blocco dati 422. 
-
-> Il ==costo== dell'algoritmo base con $L_{1}$ ennuple in $R_{1}$ e un indice di profondità $I_{2}$ ==è: $N_{1}+L_{1} \times (I_{2}+1)$.== Se il buffer **mantiene stabilmente i livelli più alti dell'indice** (radice e primo livello intermedio), poiché utilizzati ripetutamente per ogni ricerca, il costo si riduce: $N_{1}+L_{1} \times (I_{2}-2+1)$.
+Il ==costo== dell'algoritmo base con $L_{1}$ ennuple in $R_{1}$ e un indice di profondità $I_{2}$ ==è: $N_{1}+L_{1} \times (I_{2}+1)$.== Se il buffer **mantiene stabilmente i livelli più alti dell'indice** (radice e primo livello intermedio), poiché utilizzati ripetutamente per ogni ricerca, il costo si riduce: $N_{1}+L_{1} \times (I_{2}-2+1)$.
 
 ## Merge-join e ottimizzazione dell'ordinamento
 
-==Il merge-join sfrutta l'ordinamento fisico dei dati.== Se entrambi i file sono ordinati sul campo di join, il sistema esegue **due scansioni parallele** (scan sinistro e scan destro). I puntatori avanzano in modo coordinato confrontando i valori correnti: se un valore è inferiore all'altro, il relativo puntatore avanza; se sono uguali, viene prodotto il risultato del join.
- I costi variano sensibilmente in base allo stato dei file:
+==Il merge-join sfrutta l'ordinamento fisico dei dati.== Se **entrambi** i file sono ordinati sul campo di join, il sistema esegue **due scansioni parallele** (scan sinistro e scan destro). I puntatori avanzano in modo coordinato confrontando i valori correnti: se un valore è inferiore all'altro, il relativo puntatore avanza; se sono uguali, viene prodotto il risultato del join.
+I costi variano sensibilmente in base allo stato dei file:
 
-* **File già fisicamente ordinati**: il costo è la somma dei blocchi, $N_{1}+N_{2}$.
-* **File disordinati (ordinamento a due passate)**: il costo è $3 \times (N_{1}+N_{2})$. L'ottimizzazione consiste nell'eseguire la prima passata di ordinamento (creazione dei run) per entrambi i file e integrare la seconda passata (merge) direttamente con l'operazione di join.
-* **File disordinati con indici**: il costo è circa $L_{1}+L_{2}$ più il costo della scansione delle foglie degli indici.
+* **File già fisicamente ordinati**: il ==costo è la somma dei blocchi==, $N_{1}+N_{2}$.
+* **File disordinati (ordinamento a due passate)**: il ==costo è $3 \times (N_{1}+N_{2})$.== L'ottimizzazione consiste nell'eseguire la prima passata di ordinamento (creazione dei run) per entrambi i file e integrare la seconda passata (merge) direttamente con l'operazione di join.
+* **File disordinati con indici**: il ==costo è circa $L_{1}+L_{2}$ più il costo della scansione delle foglie degli indici==.
 
 ## Hash-join e partizionamento in Bucket
 
-L'hash-join applica una funzione hash ai campi di join per distribuire i record in partizioni chiamate bucket. L'obiettivo è distribuire i record in bucket tali che un record di R1​ possa accoppiarsi solo con record di R2​ appartenenti al bucket omologo (stesso valore hash). L'algoritmo prevede una fase di pre-processamento dove ogni file viene letto e distribuito in $P$ liste di blocchi. Quando un buffer è pieno, viene scritto su disco come blocco dell'opportuno bucket.
+==L'hash-join applica una funzione hash ai campi di join per distribuire i record in partizioni== chiamate _bucket_. L'obiettivo è distribuire i record in bucket tali che un record di R1​ possa accoppiarsi solo con record di R2​ appartenenti al bucket omologo (stesso valore hash). L'algoritmo prevede una fase di pre-processamento dove ogni file viene letto e distribuito in $P$ liste di blocchi. ==Quando un buffer è pieno, viene scritto su disco come blocco dell'opportuno bucket==.
 
 > **Non è necessaria una struttura hash preesistente.**
 
@@ -408,12 +409,143 @@ Durante la scansione del primo file, le ennuple vengono indirizzate ai bucket in
 * I record (B 903) e (P 903) finiscono nel **Bucket 03**.
 * I record (D 904), (H 904), (L 907), (N 907) e (S 905) vengono indirizzati al **Bucket 04**.
 
-Lo stesso processo viene applicato al secondo file (con chiavi come X901, Y910, Z911). Una volta completata la partizione, il sistema confronta solo i bucket omologhi. Sfruttando i buffer, il costo complessivo è dato da due passate di lettura e una di scrittura: $3 \times (B_{1}+B_{2})$. ==L'algoritmo è ottimale se le partizioni di almeno un file entrano interamente in memoria, condizione verificata se $P^{2} > \min(B_{1}, B_{2})$.==
+Lo stesso processo viene applicato al secondo file (con chiavi come X901, Y910, Z911). Una volta completata la partizione, il sistema confronta solo i bucket omologhi. Sfruttando i buffer, il **costo complessivo** è dato da **due passate di lettura e una di scrittura**: ==$3 \times (B_{1}+B_{2})$==. ==L'algoritmo è ottimale se le partizioni di **almeno** un file entrano **interamente** in memoria, condizione verificata se $P^{2} > \min(B_{1}, B_{2})$.==
 
 ## Confronto tra le strategie e criteri di scelta
 
 L'ottimizzatore seleziona la strategia più efficiente basandosi sui profili delle relazioni:
 
 * **Risultato piccolo (alta selettività)**: il **nested-loop con indice** è preferibile per il ridotto numero di accessi diretti.
-* **Operandi grandi di dimensione simile**: si opta per il **merge-join**, poiché è immune ai problemi di distribuzione non uniforme dei valori hash (skew) che potrebbero saturare i bucket nell'hash-join.
-* **Operandi grandi di dimensioni diverse**: l'**hash-join** è superiore perché permette di caricare interamente in memoria le porzioni della tabella più piccola, ottimizzando la fase finale di confronto.
+* **Operandi grandi di dimensione simile**: si opta per il **merge-join**, poiché è _immune ai problemi di distribuzione non uniforme_ dei valori hash (skew) che potrebbero saturare i bucket nell'hash-join.
+* **Operandi grandi di dimensioni diverse**: l'**hash-join** è superiore perché permette di _caricare interamente_ in memoria le porzioni della tabella più piccola, ottimizzando la fase finale di confronto.
+
+# Il processo di esecuzione e ottimizzazione delle interrogazioni
+
+Il ciclo di vita di un'interrogazione all'interno di un DBMS inizia con la ricezione di un comando in linguaggio SQL. Questo comando attraversa una serie di fasi trasformative coordinate dal processore delle interrogazioni, che interagisce costantemente con il _Catalogo_ del sistema. ==Il Catalogo funge da repository centrale contenente lo schema dei dati, le informazioni sulle strutture fisiche disponibili e i profili statistici delle relazioni==.
+
+La prima fase consiste nell'**analisi lessicale, sintattica e semantica**. In questo stadio, la stringa SQL viene verificata rispetto alla grammatica del linguaggio e alla validità dei riferimenti agli oggetti del database (tabelle e colonne definiti nello schema). L'output di questa fase è un'espressione iniziale in algebra relazionale. Successivamente, avviene l'**ottimizzazione algebrica**, che applica trasformazioni logiche all'espressione (come l'anticipazione delle selezioni e delle proiezioni) per produrre un'espressione algebrica ottimizzata. L'ultima fase critica è l'**ottimizzazione basata sui costi**, dove il sistema consulta le statistiche e le strutture fisiche nel Catalogo per generare il **piano di accesso** definitivo, ovvero la sequenza di operazioni fisiche che il sistema eseguirà effettivamente.
+
+## Ottimizzazione basata sui costi e alberi di decisione
+
+L'ottimizzazione basata sui costi affronta il problema di come eseguire concretamente un'espressione algebrica. Si tratta di un problema articolato che richiede scelte strategiche su molteplici fronti:
+
+* **Scelta delle operazioni elementari**: decidere se accedere ai dati tramite una scansione sequenziale dell'intero file o mediante un accesso diretto attraverso un indice.
+* **Ordine delle operazioni**: in presenza di join multipli (ad esempio tra tre relazioni), determinare la sequenza temporale con cui accoppiare le tabelle.
+* **Dettagli metodologici**: selezionare l'algoritmo specifico per ogni operatore (ad esempio, scegliere tra nested-loop, merge-scan o hash-join per un'operazione di join).
+* **Gradi di libertà addizionali**: nelle architetture parallele e distribuite, l'ottimizzatore deve considerare anche la distribuzione dei dati tra i nodi e il parallelismo di esecuzione.
+
+Per gestire questa complessità, l'==ottimizzatore costruisce un **albero di decisione** che rappresenta le varie alternative, definite piani di esecuzione==. Ciascun piano viene valutato assegnandogli un ==costo stimato basato sui profili statistici== del catalogo. L'obiettivo dell'ottimizzatore è individuare il piano con il costo minore, sebbene nella pratica tenda a trovare una "buona" soluzione piuttosto che quella matematicamente ottima, a causa dell'enorme spazio di ricerca.
+
+## Strategie di esecuzione: Pipelining vs Materializzazione
+
+Durante l'esecuzione di interrogazioni complesse rappresentate da sottoalberi, il DBMS può adottare ==due strategie== per la gestione dei risultati intermedi:
+
+* **Pipelining**: le ennuple prodotte da un operatore vengono **passate immediatamente all'operatore superiore** a mano a mano che vengono generate (esecuzione "on-demand").
+
+  * _Vantaggio_: riduce drasticamente i costi di I/O poiché i risultati intermedi non devono essere salvati su memoria secondaria.
+  * _Svantaggio_: se un risultato intermedio deve essere riutilizzato più volte (come nel ciclo interno di un nested-loop join), è necessario ricalcolarlo ogni volta, aumentando il carico computazionale.
+
+* **Materializzazione**: l'intero **risultato di un sottoalbero viene calcolato e memorizzato fisicamente su disco** prima di essere utilizzato dal nodo superiore. Questo approccio è necessario quando l'operatore superiore richiede l'accesso completo ai dati (come in certi algoritmi di ordinamento) o quando il riutilizzo del dato materializzato è più economico del ricalcolo.
+
+## Esempi pratici di ottimizzazione algebrica
+
+Si consideri una base di dati composta dalle seguenti relazioni:
+
+* $Impiegati(\underline{Matricola}, Cognome, Nome, Ufficio)$: 100.000 record, 10.000 uffici distinti.
+* $Progetti(\underline{Codice}, Titolo, Committente)$: 1000 record, Titolo è chiave candidata.
+* $Collaborazioni(\underline{Impiegato}, \underline{Progetto}, Ruolo)$: 500.000 record.
+
+Per l'interrogazione "I dati dei progetti cui collaborano impiegati dell'ufficio 5103", il comando SQL è: `SELECT Progetti.* FROM Impiegati JOIN Collaborazioni ON Matricola=Impiegato JOIN Progetti ON Progetto=Codice WHERE Ufficio = 5103`
+
+L'ottimizzazione algebrica trasforma questa richiesta anticipando la selezione. L'albero risultante vede alla base la selezione $\sigma_\text{Ufficio=5103}(Impiegati)$, il cui risultato entra in join con $Collaborazioni$ sulla condizione $Matr=Imp$. Il risultato di questo join viene infine unito in join con $Progetti$ sulla condizione $Prog=Cod$, con una proiezione finale $\pi_\text{Cod, Titolo, Valore}$.
+
+Per l'interrogazione "I dati degli impiegati che collaborano al progetto Marte", il comando SQL è: `SELECT Impiegati.* FROM Impiegati JOIN Collaborazioni ON Matricola=Impiegato JOIN Progetti ON Progetto=Codice WHERE Titolo = 'Marte'`
+
+In questo caso, l'ottimizzazione sposta la selezione alla base della relazione Progetti: $\sigma_{Titolo='Marte'}(Progetti)$. Il risultato (estremamente selettivo) entra in join con $Collaborazioni$ sulla condizione $Cod=Prog$, e il prodotto di questa operazione effettua il join finale con $Impiegati$ sulla condizione $Imp=Matr$, concludendo con la proiezione $\pi_{Matr, Cog, Nome, Ufficio}$.
+
+## Progettazione fisica nei DBMS relazionali
+
+La ==progettazione fisica== è la fase finale del ciclo di progettazione di una base di dati. ==Prende in _input_ lo **schema logico** e le **informazioni sul carico applicativo** per _produrre_ uno **schema fisico**==, che definisce le strutture di memorizzazione e i parametri specifici del DBMS.
+
+### Strutture primarie e indici
+
+Le strutture primarie definiscono come i dati sono organizzati nel file principale:
+
+* **Disordinata (heap, "unclustered")**: i record sono inseriti senza un ordine specifico.
+* **Ordinata ("clustered")**: i dati sono mantenuti fisicamente ordinati secondo una chiave o pseudochiave.
+* **Hash ("clustered")**: i dati sono distribuiti in bucket tramite una funzione hash, senza un ordine sequenziale.
+* **Clustering plurirelazionale**: memorizzazione fisica ravvicinata di record appartenenti a relazioni diverse ma logicamente collegate (ad esempio ordini e relative righe d'ordine).
+
+Gli indici possono essere densi (un puntatore per ogni record) o sparsi (un puntatore per ogni blocco), semplici o composti. Le tipologie comuni includono:
+
+* **ISAM**: indice statico, tipico di strutture ordinate.
+* **B-tree**: indice dinamico e bilanciato, lo standard per la maggior parte dei DBMS.
+* **Indici Hash**: indici secondari meno dinamici rispetto ai B-tree.
+
+### Implementazioni nei DBMS commerciali
+
+* **Oracle**: utilizza file heap come primaria, supporta "hash cluster" e cluster plurirelazionali (anche ordinati con B-tree denso). Offre indici secondari B-tree, bit-map e basati su funzioni.
+* **DB2**: struttura primaria heap o ordinata con B-tree denso; crea automaticamente un indice sulla chiave primaria e supporta indici secondari B-tree densi.
+* ~~**SQL Server**: primaria heap o ordinata con indice B-tree sparso; indici secondari B-tree densi.~~
+* ~~**Ingres (storico)**: supportava heap, hash e ISAM (anche compressi).~~
+* ~~**Informix (storico)**: struttura primaria heap, indici secondari e primari (cluster) non mantenuti.~~
+
+## Definizione degli indici in SQL e Postgres
+
+Sebbene non sia parte dello standard SQL puro, la creazione di indici è gestita in modo simile dai vari sistemi:
+
+* `CREATE [UNIQUE] INDEX NomeIndice ON NomeTabella(ListaAttributi)`
+* `DROP INDEX NomeIndice`
+
+> Il termine `UNIQUE` è considerato [metodologicamente controverso]{.underline} poiché mescola un vincolo logico (l'unicità) con una struttura fisica (l'indice).
+
+Postgres offre comandi avanzati per la gestione fisica:
+
+* `CREATE [ UNIQUE ] INDEX [ name ] ON table [ USING method ] ( { column | ( expression ) } [ ASC | DESC ] )`: permette di specificare il metodo (es. B-tree, Hash, GIST) e l'ordinamento dei `null`.
+* `CLUSTER table_name [ USING index_name ]`: riordina fisicamente la tabella in base a un indice esistente, **ma non viene persistito**.
+* `VACUUM [ ANALYZE ] table`: recupera spazio e aggiorna le statistiche per l'ottimizzatore.
+
+## Euristiche di progettazione fisica e Tuning
+
+La scelta degli indici è il cuore della progettazione fisica. Molti sistemi suggeriscono di definire indici sulle chiavi primarie poiché coinvolte frequentemente in join e selezioni. Il processo di _==tuning==_ consiste nell'==aggiungere o rimuovere indici o modificare strutture primarie== se le prestazioni non sono soddisfacenti, verificando l'uso effettivo degli indici tramite i comandi `EXPLAIN` o `SHOW PLAN`.
+
+### Euristiche di Informix
+
+1. **Non** creare indici su relazioni molto **piccole** (meno di 200 ennuple).
+2. **Evitare** indici su campi con cardinalità molto **bassa** (pochi valori distinti); se necessario, preferire indici primari.
+3. **Creare** indici su campi soggetti a **frequenti selezioni**.
+4. Per l'ottimizzazione dei join, creare **indici** sulla relazione di dimensioni **maggiori**.
+
+### Metodo di Shasha per la scelta della struttura
+
+Shasha propone un albero di decisione per la scelta della struttura primaria:
+
+* Se la **relazione è piccola**, scegliere **Heap senza indice**.
+* Se non è piccola:
+  * Se è **enorme e senza tempi morti** (aggiornamenti rari), scegliere **Heap con indice**.
+  * Se non lo è, e si effettuano ricerche per **intervalli, estremi o ordinamenti**:
+    * Se la chiave **non è** sequenziale **ma è** dinamica: **Cluster B-Tree**.
+    * Se la chiave **non è** sequenziale **e non** dinamica: **Cluster ISAM**.
+    * Se la chiave **è** sequenziale: **Hash**.
+  * Se **non** si effettuano ricerche per intervalli: **Hash**.
+
+## Esercizio di valutazione dei costi (9 Aprile 2018)
+
+Si considerino le relazioni $R1(\underline{A}, B, C)$ e $R2(\underline{D}, E, F)$ con indici sulle chiavi primarie. Dati:
+
+* $N_{1} = 2.000.000$ ennuple, $N_{2} = 4.000.000$ ennuple.
+* Fattori di blocco: $f_{1} = 20$, $f_{2} = 40$.
+* Attributo $B$ in $R1$: 200.000 valori distinti distribuiti uniformemente tra 1 e 200.000.
+* Indici: profondità $p=4$ (radice e foglie incluse), fattore di blocco massimo $f_{i} = 50$.
+* Memoria: $q=500$ pagine di buffer.
+
+**Caso 1: `SELECT * FROM R1 JOIN R2 ON C=D`** Postgres sceglie l'**Hash Join**. Il costo dell'Hash Join, non potendo tenere tutta la relazione in memoria ($q < B_{1}$), richiede due passate: lettura e partizionamento di entrambe le relazioni e successiva rilettura per il join. $Costo \approx 3 \times (N_{1}/f_{1} + N_{2}/f_{2}) = 3 \times (100.000 + 100.000) = 600.000$ accessi. Un Nested Loop senza selezione richiederebbe $100.000 + (100.000/500 \times 100.000) = 20.100.000$ accessi, risultando proibitivo.
+
+**Caso 2: `SELECT * FROM R1 JOIN R2 ON C=D WHERE B >= 41 AND B <= 45`** Postgres sceglie **Nested Loop join con accesso diretto alla relazione interna**. La selezione su $B$ ha una selettività elevata: $(45 - 41 + 1) / 200.000 = 5 / 200.000 = 1/40.000$. Numero di ennuple di $R1$ filtrate: $2.000.000 / 40.000 = 50$ ennuple. Costo:
+
+1. Accesso alle 50 ennuple di $R1$ (scansione o indice): trascurabile.
+2. Per ogni ennupla (50 volte), accesso diretto a $R2$ tramite indice su chiave primaria $D$: $Costo = 50 \times (p + 1) = 50 \times 5 = 250$ accessi. In questo caso, la selettività della condizione su $B$ rende il Nested Loop estremamente più vantaggioso rispetto all'Hash Join.
+
+### Analisi reale su Postgres
+
+Sperimentando con script SQL, si osserva che la dimensione reale dei blocchi in Postgres è tipicamente 8 KB. Se un'ennupla di tre attributi numerici occupa circa 24 B, il fattore di blocco teorico sarebbe $8192/24 \approx 333$. Tuttavia, l'uso del comando `ANALYZE VERBOSE` rivela un fattore reale di 157, poiché una parte significativa del blocco è occupata da informazioni di servizio e overhead del sistema. ==Risultati sperimentali confermano che per interrogazioni non selettive l'Hash Join è superiore, mentre per query con selezioni forti il Nested Loop è la scelta ottimale.==

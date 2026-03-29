@@ -9,7 +9,7 @@ import time
 DB_PARAMS = {
     "dbname": "university",
     "user": "db_admin",
-    "password": "secretpassword",
+    "password": "****",
     "host": "localhost",
     "port": "5432",
 }
@@ -24,7 +24,6 @@ fake = Faker("it_IT")
 
 
 def clear_tables(conn):
-    print("Svuotamento delle tabelle in corso (TRUNCATE)...")
     with conn.cursor() as cur:
         cur.execute("TRUNCATE TABLE exams, students, courses RESTART IDENTITY CASCADE;")
     conn.commit()
@@ -119,7 +118,6 @@ def main():
             host=DB_PARAMS["host"],
             port=DB_PARAMS["port"],
         )
-        print("Connessione al database riuscita.")
 
         if CLEAR_TABLES_ON_START:
             clear_tables(conn)
@@ -130,9 +128,7 @@ def main():
 
         conn.close()
         end_time = time.time()
-        print(
-            f"\nCompletato! Tempo di esecuzione: {round(end_time - start_time, 2)} secondi."
-        )
+        print(f"\nCompletato! DB inizializzato in {end_time - start_time} secondi.")
 
     except Exception as e:
         print(f"Errore: {e}")
