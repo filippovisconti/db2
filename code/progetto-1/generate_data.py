@@ -78,7 +78,7 @@ def generate_students(conn):
 
 
 def generate_exams(conn):
-    print(f"Generazione di {NUM_EXAMS} esami (Tabella dei Fatti)...")
+    print(f"Generazione di {NUM_EXAMS} esami ...")
     exams = []
     start_date = date(2015, 1, 1)
 
