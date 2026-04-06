@@ -5,23 +5,22 @@ author:
 template:
   - template.tex
 ---
-# Introduzione e Architettura del Sistema
+# Introduzione
 
-Questo elaborato mostra la misurazione e l'ottimizzazione delle prestazioni di un database relazionale sottoposto a query specifiche, scelte per tentare di osservare il cambiamento delle strategie scelte dall'ottimizzatore. Lo scopo è dimostrare come la corretta progettazione delle strutture fisiche (indici B-Tree) consenta di abbattere i costi computazionali e di I/O.
+Questo elaborato mostra la misurazione e l'ottimizzazione delle prestazioni di un database relazionale sottoposto a un set di query, scelte per tentare di osservare il cambiamento delle strategie scelte dall'ottimizzatore. Lo scopo è dimostrare come la progettazione degli indici consenta di abbattere i costi computazionali e di I/O.
 
-Per garantire l'isolamento e la riproducibilità dell'ambiente di test, l'infrastruttura è stata implementata tramite containerizzazione.
-Come RDBMS è stato scelto _PostgreSQL 16_; per l'amministrazione _pgAdmin 4_, in esecuzione tramite Docker su un Apple MacBook Pro 16 con processore Apple M1 Pro e 16 GB di RAM.
+Per garantire l'isolamento e la riproducibilità dell'ambiente di test, l'infrastruttura è stata implementata tramite container.
+Come DBMS è stato scelto _PostgreSQL 16_ e per l'amministrazione _pgAdmin 4_, in esecuzione tramite Docker su un Apple MacBook Pro 16 con processore Apple M1 Pro e 16 GB di RAM.
 
-Il progetto simula il database, in versione semplificata, di un sistema informativo di un Ateneo universitario. Lo schema comprende le seguenti tabelle:
+Il progetto simula il database, in versione chiaramente semplificata, di un sistema informativo di un ateneo universitario. Lo schema comprende le seguenti tabelle:
 
-* `courses` ($100$ tuple).
-* `students` ($50.000$ tuple)
-* `exams` ($15.000.000$ di tuple), che traccia lo storico degli esiti.
+* `courses` ($100$ ennuple).
+* `students` ($50.000$ ennuple)
+* `exams` ($15.000.000$ di ennuple), che traccia lo storico degli esiti.
 	
 Ove possibile, si è cercato di ottimizzare la dimensione dei tipi di dato. Ad esempio, per i campi `credits` e `grade` è stato utilizzato il tipo di dato `SMALLINT` (2 byte) anziché il canonico `INTEGER` (4 byte).
 
 ``` sql  {style=csnotes}
--- Creazione tabella Corsi
 CREATE TABLE courses (
     course_id SERIAL PRIMARY KEY,
     course_code VARCHAR(10) UNIQUE NOT NULL,
@@ -30,7 +29,6 @@ CREATE TABLE courses (
     department VARCHAR(50) NOT NULL
 );
 
--- Creazione tabella Studenti
 CREATE TABLE students (
     student_id SERIAL PRIMARY KEY,
     matricola VARCHAR(20) UNIQUE NOT NULL,
@@ -39,7 +37,6 @@ CREATE TABLE students (
     enrollment_year SMALLINT NOT NULL
 );
 
--- Creazione tabella Esami (Tabella dei Fatti)
 CREATE TABLE exams (
     exam_id SERIAL PRIMARY KEY,
     student_id INTEGER NOT NULL,
@@ -54,25 +51,15 @@ CREATE TABLE exams (
 
 # Generazione dei dati
 
-Al fine di generare un volume di dati sufficiente a innescare i meccanismi di ottimizzazione avanzata del DBMS è stato utlizzato il seguente script Python. Si utilizza la libreria Faker per generare dati fittizi ma realistici.
-Lo script non esegue istruzioni `INSERT` singole. Sfrutta invece la funzione `execute_values` della libreria `psycopg2`, implementando una tecnica di _Batch Insert_, raggruppando le tuple in blocchi per ridurre i tempi di esecuzione.
+Al fine di generare un volume di dati sufficiente a innescare i meccanismi di ottimizzazione avanzata del DBMS è stato utlizzato il seguente script Python. Si è scelto di utilizzare la libreria _Faker_ per generare dati fittizi ma realistici.
 
 \scriptsize
 ```python  {style=csnotes}
-# NOTA BENE: SEZIONE DI IMPORT E CONFIGURAZIONE OMESSA
-
+# SEZIONE DI IMPORT E CONFIGURAZIONE OMESSA, vedere script allegato
 NUM_COURSES = 100
 NUM_STUDENTS = 50000
 NUM_EXAMS = 15000000
-
-CLEAR_TABLES_ON_START = True
-
-def clear_tables(conn):
-    with conn.cursor() as cur:
-        cur.execute("TRUNCATE TABLE exams, students, courses RESTART IDENTITY CASCADE;")
-    conn.commit()
-    print("Tabelle svuotate e contatori resettati con successo.\n")
-
+# .......
 def generate_courses(conn):
     print(f"Generazione di {NUM_COURSES} corsi...")
     courses = []
@@ -121,10 +108,9 @@ def generate_students(conn):
 
 
 def generate_exams(conn):
-    print(f"Generazione di {NUM_EXAMS} esami (Tabella dei Fatti)...")
+    print(f"Generazione di {NUM_EXAMS} esami...")
     exams = []
     start_date = date(2015, 1, 1)
-
     for _ in range(NUM_EXAMS):
         random_days = random.randint(0, 3200)
         exam_date = start_date + timedelta(days=random_days)
@@ -152,43 +138,34 @@ def generate_exams(conn):
 
 
 def main():
-    start_time = time.time()
     try:
         conn = psycopg2.connect(**PARAMS)
-
-        if CLEAR_TABLES_ON_START:
-            clear_tables(conn)
 
         generate_courses(conn)
         generate_students(conn)
         generate_exams(conn)
 
         conn.close()
-        end_time = time.time()
-        print(f"\nDB inizializzato in {end_time - start_time} secondi.")
-
     except Exception as e:
         print(f"Errore: {e}")
-
-if __name__ == "__main__":
-    main()
 ```
 \normalsize
 
-# Analisi del Workload e Metodologia di Misurazione
+# Analisi e Misurazione delle Performance
 
-Per testare la reattività del sistema, sono state progettate tre query di complessità crescente:
+Per testare il comportamento del sistema, sono state progettate tre query di complessità crescente:
 
 ``` sql  {style=csnotes}
--- Query 1> Estrazione degli esami superati con lode (31) in un dipartimento specifico 
+-- Query 1> Elenco degli esami superati con lode nel dipartimento di informatica 
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT c.course_name, e.exam_date, e.grade
 FROM exams e
 JOIN courses c ON e.course_id = c.course_id
 WHERE c.department = 'Informatica' AND e.grade = 31;
+```
 
--- Query 2> Elenco dettagliato degli esami di un determinato anno accademico con voto 
---superiore a 28, ordinati cronologicamente
+``` sql  {style=csnotes}
+-- Query 2> Elenco degli esami dell'anno solare 2023 con voto superiore a 28, ordinati per data
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT s.matricola, c.course_name, e.grade, e.exam_date
 FROM exams e
@@ -196,9 +173,10 @@ JOIN students s ON e.student_id = s.student_id
 JOIN courses c ON e.course_id = c.course_id
 WHERE e.grade >= 28 AND e.exam_date >= '2023-01-01' AND e.exam_date <= '2023-12-31'
 ORDER BY e.exam_date DESC;
+```
 
--- Query 3> Calcolo della media pesata e dei crediti totali acquisiti da una singola 
--- matricola specifica
+``` sql  {style=csnotes}
+-- Query 3> Calcolo della media pesata e dei crediti totali acquisiti da una data matricola 
 EXPLAIN (ANALYZE, BUFFERS)
 SELECT s.matricola, s.first_name, s.last_name,
        SUM(c.credits) AS total_credits,
@@ -206,13 +184,18 @@ SELECT s.matricola, s.first_name, s.last_name,
 FROM exams e
 JOIN students s ON e.student_id = s.student_id
 JOIN courses c ON e.course_id = c.course_id
+WHERE s.matricola = 'MATR1332760' AND e.grade >= 18 
 GROUP BY s.student_id, s.matricola, s.first_name, s.last_name;
 ```
 
-La sola misurazione del tempo di esecuzione (`Execution Time`) è stata scartata in quanto metrica instabile, soggetta a fluttuazioni derivanti dal carico del sistema operativo ospite. Per valutare l'efficienza reale degli algoritmi di accesso ai dati, è stato utilizzato il comando diagnostico: `EXPLAIN (ANALYZE, BUFFERS)` L'attenzione si è concentrata sulla metrica dei **Buffers**, che permette di quantificare l'esatto ammontare di I/O generato (suddiviso in `hit` per la lettura in RAM e `read` per l'accesso al disco fisico), rivelando il vero costo architetturale dell'interrogazione.
+Per valutare l'efficienza reale degli algoritmi di accesso ai dati, è stato utilizzato il comando: `EXPLAIN (ANALYZE, BUFFERS)`. L'attenzione si è concentrata sulla metrica `Buffer`, che riporta l'esatto ammontare di I/O generato suddiviso in `hit` per la lettura in RAM e `read` per l'accesso a memoria secondaria, rivelando il vero costo dell'interrogazione. 
+
+## Pre-aggiornamento 
+Di seguito vengono riportati i report estratti dalla console di pgAdmin generati dall'esecuzione delle tre query, subito dopo la popolazione della base di dati, prima dell'aggiornamento delle statistiche.
 
 \tiny
 ```csv {style=rawlog}
+-- Query 1
 Gather  (cost=1003.54..199994.21 rows=241272 width=40) (actual time=13.873..425.415 rows=245523 loops=1)
   Workers Planned: 2
   Workers Launched: 2
@@ -239,9 +222,8 @@ JIT:
   Options: Inlining false, Optimization false, Expressions true, Deforming true
   Timing: Generation 3.963 ms, Inlining 0.000 ms, Optimization 2.424 ms, Emission 35.090 ms, Total 41.477 ms
 Execution Time: 438.012 ms
-
-//////////////////////////////////////////////////////////////////
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+-- Query 2
 Gather Merge  (cost=227412.20..264397.41 rows=316994 width=52) (actual time=467.966..523.407 rows=373213 loops=1)
   Workers Planned: 2
   Workers Launched: 2
@@ -281,10 +263,8 @@ JIT:
   Timing: Generation 4.498 ms, Inlining 0.000 ms, Optimization 2.212 ms, Emission 68.889 ms, Total 75.599 ms
 Execution Time: 538.339 ms
 
-
-
-///////////////////////////////////////////////////////////////////////////
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+-- Query 3
 Finalize GroupAggregate  (cost=191092.52..191094.04 rows=1 width=71) (actual time=855.764..860.047 rows=1 loops=1)
   Group Key: s.student_id
   Buffers: shared hit=11592 read=83997
@@ -333,10 +313,12 @@ Execution Time: 861.766 ms
 ```
 \normalsize
 
-Dopo aver eseguito una prima volta le query, è stato eseguito il comando: `ANALYZE exams, students, courses;`. Questa operazione ha forzato il DBMS ad analizzare i dati appena inseriti e ad aggiornare la tabella di catalogo `pg_statistic`, fornendo al _Cost-Based Optimizer_ (CBO) le stime corrette per calcolare i piani di esecuzione.
+## Post-aggiornamento
+Dopo aver eseguito una prima volta le query, è stato lanciato il comando: `ANALYZE exams, students, courses`. Questa operazione ha forzato il DBMS ad analizzare i dati inseriti e ad aggiornare la tabella di catalogo `pg_statistic`, fornendo all'ottimizzatore le stime corrette per calcolare i piani di esecuzione.
 
 \tiny
 ```csv {style=rawlog}
+-- Query 1
 Gather  (cost=1003.54..201201.21 rows=252772 width=40) (actual time=18.325..501.288 rows=245523 loops=1)
   Workers Planned: 2
   Workers Launched: 2
@@ -363,9 +345,8 @@ JIT:
   Options: Inlining false, Optimization false, Expressions true, Deforming true
   Timing: Generation 5.794 ms, Inlining 0.000 ms, Optimization 3.417 ms, Emission 35.292 ms, Total 44.504 ms
 Execution Time: 515.011 ms
-
-//////////////////////////////////////////////////////////////////////////////
-
+//////////////////////////////////////////////////////////////////////////////////////////////////////////
+-- Query 2
 Gather Merge  (cost=226984.54..263216.51 rows=310538 width=52) (actual time=655.229..716.333 rows=373213 loops=1)
   Workers Planned: 2
   Workers Launched: 2
@@ -402,17 +383,13 @@ Planning Time: 0.906 ms
 JIT:
   Functions: 63
   Options: Inlining false, Optimization false, Expressions true, Deforming true
-  Timing: Generation 3.385 ms, Inlining 0.000 ms, Optimization 1.992 ms, Emission 29.911 ms, Total 35.288 ms
+  Timing: Generation 3.385 ms, Inlining 0.0 ms, Optimization 1.992 ms, Emission 29.911 ms, Total 35.288 ms
 Execution Time: 731.171 ms
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
+-- Query 3
 Finalize GroupAggregate  (cost=191092.52..191094.04 rows=1 width=71) (actual time=824.624..830.068 rows=1 loops=1)
   Group Key: s.student_id
   Buffers: shared hit=11961 read=83628
-  ->  Gather Merge  (cost=191092.52..191094.01 rows=2 width=71) (actual time=824.610..830.053 rows=3 loops=1)
+  ->  Gather Merge (cost=191092.52..191094.01 rows=2 width=71)(actual time=824.610..830.053 rows=3 loops=1)
         Workers Planned: 2
         Workers Launched: 2
         Buffers: shared hit=11961 read=83628
@@ -445,13 +422,12 @@ Finalize GroupAggregate  (cost=191092.52..191094.04 rows=1 width=71) (actual tim
                                 Buffers: shared hit=6
                                 ->  Seq Scan on courses c  (cost=0.00..3.00 rows=100 width=6) (actual time=17.075..17.099 rows=100 loops=3)
                                       Buffers: shared hit=6
-Planning:
-  Buffers: shared hit=12
+Planning: Buffers: shared hit=12
 Planning Time: 0.326 ms
 JIT:
   Functions: 87
   Options: Inlining false, Optimization false, Expressions true, Deforming true
-  Timing: Generation 4.780 ms, Inlining 0.000 ms, Optimization 1.883 ms, Emission 49.437 ms, Total 56.100 ms
+  Timing: Generation 4.780 ms, Inlining 0.0 ms, Optimization 1.883 ms, Emission 49.437 ms, Total 56.10 ms
 Execution Time: 832.184 ms
 ```
 
@@ -459,46 +435,35 @@ Execution Time: 832.184 ms
 
 Tuttavia, le strategie sono rimaste le stesse e non si notano particolari cambiamenti né in termini di tempo, né in termini di scelta di operazioni.
 
-## Strategia di Ottimizzazione (Strutture Fisiche)
+## Strategia di Ottimizzazione
 
-Per mitigare le inefficienze riscontrate nei piani di esecuzione base (caratterizzati da pesanti _Sequential Scan_ sull'intera tabella degli esami), è stata implementata una strategia di ottimizzazione basata su indici B-Tree.
+Per migliorare le inefficienze dei piani di esecuzione base (ad es. _Sequential Scan_ sull'intera tabella degli esami), è stata implementata una strategia di ottimizzazione basata su indici.
 
-Poiché PostgreSQL non indicizza automaticamente le _Foreign Key_, il primo passo è stato colmare questa lacuna. Gli indici sulle FK sono vitali per ottimizzare le operazioni di `JOIN` tra la tabella degli esami e le dimensioni, permettendo al motore di evitare la scansione dell'intera tabella `exams` durante l'associazione dei record.
-
+Poiché PostgreSQL non crea automaticamente gli indici per le _Foreign Key_, il primo passo è stato colmare questa lacuna. Gli indici sulle FK sono infatti fondamentali per ottimizzare le operazioni di `JOIN`, permettendo al DBMS di evitare la scansione dell'intera tabella `exams` durante il calcolo.
 ```sql
 CREATE INDEX idx_exams_student_id ON exams(student_id);
 CREATE INDEX idx_exams_course_id ON exams(course_id);
-```
 
-Per supportare in modo specifico le clausole `WHERE` e `ORDER BY` del nostro carico di lavoro, sono state create strutture aggiuntive:
-
-* Un **indice composto** su corso e voto, progettato per permettere al database di filtrare simultaneamente entrambe le condizioni della Q1.
-
-* Un **indice temporale decrescente**, per pre-ordinare fisicamente i dati e azzerare il costo computazionale dell'operazione di `Sort` richiesta dalla Q2.
-
-```sql
-CREATE INDEX idx_exams_course_grade ON exams(course_id, grade);
+-- Per supportare le selezioni e le ricerche del carico di lavoro scelto, sono stati creati anche i seguenti indici:
 CREATE INDEX idx_exams_date ON exams(exam_date DESC);
 CREATE INDEX idx_courses_department ON courses(department);
 ```
 
-> (Nota: Il campo `matricola` della tabella `students` beneficia di un indice B-Tree univoco creato implicitamente dal DBMS a supporto del vincolo `UNIQUE` definito in fase di DDL).
+Il campo `matricola` della tabella `students` ha già a disposizione un indice  creato implicitamente dal DBMS a supporto del vincolo di unicità.
 
-# Analisi delle Prestazioni
+## Inserimento indici
 
-## Query 3
+### Query 3
 
-L'interrogazione Q3 è stata progettata per calcolare aggregazioni complesse (somma dei crediti e media dei voti) per un singolo studente, simulando una tipica richiesta puntuale proveniente dal gestionale universitario. La query prevede operazioni di `JOIN` tra la tabella `exams` e le tabelle `students` e `courses`.
-**(Pre-Ottimizzazione)**: eseguendo l'interrogazione con il comando `EXPLAIN (ANALYZE, BUFFERS)` in assenza di indici sulle chiavi esterne, il Query Planner di PostgreSQL ha generato un piano di esecuzione fortemente inefficiente. Dal log si evince chiaramente la scelta di un **Parallel Seq Scan** sulla tabella `exams`. L'ottimizzatore, conscio dell'elevato numero di tuple, ha allocato due worker paralleli nel tentativo di mitigare i tempi di scansione sequenziale. Nonostante questo espediente, l'esecuzione ha richiesto **832.184 ms**.
+La query 3 era stata progettata per calcolare aggregazioni complesse (somma dei crediti e media dei voti) per un singolo studente, simulando una richiesta proveniente dal gestionale universitario. La query prevede operazioni di `JOIN` tra la tabella `exams` e le tabelle `students` e `courses`.
 
-Tuttavia, il dato più critico emerge dall'analisi dei costi fisici (I/O):
+**Pre-Ottimizzazione**: eseguendo l'interrogazione con il comando `EXPLAIN (ANALYZE, BUFFERS)` in assenza di indici sulle chiavi esterne, il Query Planner di PostgreSQL ha generato un piano di esecuzione fortemente inefficiente (vd. console log nella sezione precedente). Dal log si evinceva chiaramente la scelta di eseguire un Parallel Seq Scan sulla tabella `exams`. L'ottimizzatore, probabilmente conscio dell'elevato numero di ennuple, ha allocato due worker paralleli nel tentativo di mitigare i tempi di scansione sequenziale. Nonostante questo espediente, l'esecuzione ha richiesto 832.184 ms.
 
-> `Buffers: shared hit=11961 read=83628`
+Tuttavia, il dato più critico emerge dai costi di I/O:`Buffers: shared hit=11961 read=83628`.
 
-Il sistema ha dovuto elaborare un totale di $95.589$ blocchi di memoria (pagine da $8$KB). Di questi, ben $83.628$ blocchi non erano presenti in cache e hanno richiesto una costosa operazione di lettura fisica dal disco (`read`). Questo comportamento dimostra come, senza strutture fisiche adeguate, il database sia costretto a scorrere l'intera tabella dei fatti per isolare le tuple relative a una singola matricola, saturando il sottosistema I/O.
+Il sistema ha dovuto elaborare un totale di $95.589$ blocchi di memoria. Di questi, $83.628$ non erano presenti in cache e hanno richiesto una lettura dal disco (`read`). Questo comportamento mostra come, non avendo alternative, il DBMS sia costretto a scorrere l'intera tabella per isolare le ennuple relative a una singola matricola.
 
-Per risolvere questa inefficienza strutturale, è stato implementato un indice B-Tree sulla chiave esterna della tabella dei fatti: `CREATE INDEX idx_exams_student_id ON exams(student_id);`.
-La successiva esecuzione ha mostrato un radicale cambio di paradigma algoritmico da parte del Query Planner.
+A seguito della creazione degli indici, l'esecuzione seguente ha mostrato un radicale cambio di paradigma algoritmico da parte del Query Planner.
 
 \tiny
 
@@ -535,22 +500,21 @@ Execution Time: 1.170 ms
 ```
 \normalsize
 
-![Query 3 graph](figures/3.svg)
+![Query 3 graph](figures/3.svg){latex-placement="h"}
 
-L'accesso sequenziale è stato completamente scartato in favore di un approccio combinato: un **Bitmap Index Scan** seguito da un  **Bitmap Heap Scan**. L'indice B-Tree ha permesso al motore di individuare istantaneamente i puntatori fisici delle tuple richieste, costruendo una mappa in memoria (bitmap) usata poi per accedere direttamente ai blocchi dati pertinenti.
+L'accesso sequenziale è stato scartato in favore di un Bitmap Index Scan seguito da un Bitmap Heap Scan. L'indice ha infatti permesso al DBMS di individuare istantaneamente le ennuple richieste.
 
 I vantaggi misurati sono evidenti: il consumo di buffer è precipitato a `shared hit=293`; le letture fisiche dal disco (`read`) sono state completamente azzerate; il tempo totale di esecuzione è sceso a $1.170$ ms.
 
-L'introduzione dell'indice ha ridotto il tempo di esecuzione del $99.8\%$, ma il risultato più rilevante è la riduzione del fattore di lettura dei blocchi dati di circa **326 volte** (da 95.589 a 293 buffer). 
+L'introduzione dell'indice ha ridotto il tempo di esecuzione del $99.8\%$, ma il risultato più rilevante è la riduzione di letture dei blocchi di circa 326 volte (da 95.589 a 293 buffer). 
 
-## Query 1 e 2
+\newpage
 
-L'interrogazione Q2 introduce una duplice sfida per il motore del database: un filtraggio combinato (su un range temporale e una soglia di voto) e, soprattutto, un ordinamento cronologico dei risultati (`ORDER BY e.exam_date DESC`).
+### Query 1
 
 \tiny
-
 ```csv {style=rawlog}
-QUERY 1:////////////////////////////////////////////////////
+QUERY 1 Post-aggiunta indici: ////////////////////////////////////////////////////
 Gather  (cost=1003.54..201200.51 rows=252770 width=40) (actual time=29.342..803.883 rows=245523 loops=1)
   Workers Planned: 2
   Workers Launched: 2
@@ -577,9 +541,26 @@ JIT:
   Options: Inlining false, Optimization false, Expressions true, Deforming true
   Timing: Generation 5.166 ms, Inlining 0.000 ms, Optimization 3.882 ms, Emission 57.795 ms, Total 66.843 ms
 Execution Time: 819.035 ms
+```
+\normalsize
 
-///////////////////////////////////////////////////////////////////////////////
-QUERY 2:
+Contrariamente all'abbattimento drastico dei costi osservato nella query 3, l'analisi dei piani di esecuzione post-ottimizzazione per la query 1 non mostra differenze. Nonostante l'istanziazione degli indici, il DBMS ha deliberatamente scelto di ignorarli, prediligendo un metodo di accesso sequenziale `Parallel Seq Scan on exams e (.....)`.
+
+Questo scenario non rappresenta, in realtà, un completo fallimento della strategia di tuning, bensì una dimostrazione dell'operato del Cost-Based Optimizer del DBMS. La decisione ruota attorno alla selettività del predicato. Sfruttare un indice è computazionalmente vantaggioso solo quando il predicato è altamente selettivo, mentre la query in questione lo era poco. 
+Se il database utilizzasse l'indice per estrarre le $350.000$ righe, sarebbe costretto a eseguire centinaia di migliaia di accessi casuali al disco o alla memoria RAM, rimbalzando continuamente tra i blocchi dell'indice e quelli della tabella.
+
+Il Query Planner, anche grazie alle statistiche aggiornate in precedenza tramite il comando `ANALYZE`, ha stimato questo costo e dedotto che eseguire una scansione completa e sequenziale dei blocchi della tabella distribuendo il carico su più core della CPU (`Workers Launched: 2`) avrebbe prodotto un costo computazionale complessivo inferiore rispetto all'overhead generato da un Index Scan.
+
+![Query 1 graph](figures/1.svg){latex-placement="h"}
+
+### Query 2
+
+La query 2 presenta un filtraggio combinato (su un arco temporale e una soglia di voto) e un ordinamento dei risultati sulla base della data(`ORDER BY e.exam_date DESC`).
+
+\tiny
+
+```csv {style=rawlog}
+QUERY 2 Post-aggiunta indici: ////////////////////////////////////////////////////
 Gather Merge  (cost=210522.60..246795.40 rows=310888 width=52) (actual time=1233.593..1315.599 rows=373213 loops=1)
   Workers Planned: 2
   Workers Launched: 2
@@ -622,36 +603,23 @@ Planning Time: 3.530 ms
 JIT:
   Functions: 69
   Options: Inlining false, Optimization false, Expressions true, Deforming true
-  Timing: Generation 12.946 ms, Inlining 0.000 ms, Optimization 3.899 ms, Emission 52.995 ms, Total 69.840 ms
+  Timing: Generation 12.946 ms, Inlining 0.0 ms, Optimization 3.899 ms, Emission 52.995 ms, Total 69.840 ms
 Execution Time: 1335.699 ms
 
 ```
 \normalsize
 
-Contrariamente all'abbattimento drastico dei costi osservato nella Q3, l'analisi dei piani di esecuzione post-ottimizzazione per Q1 non mostra differenze. Nonostante la l'istanziazione degli indici, il Query Planner ha deliberatamente scelto di ignorarli, prediligendo un metodo di accesso sequenziale:
+In questa query invece, l'ottimizzatore sceglie di sfruttare gli indici (`idx_exams_date`), abbandonando il **Parallel Seq Scan** sulla tabella esami in favore di un **Bitmap heap scan** seguito da un **Bitmap index scan**. 
+Tuttavia questa strategia non si è rivelata molto efficace, in quanto la bitmap è divenuta troppo grande e il DBMS l'ha dovuta ridurre tracciando i blocchi (la parte lossy di `Heap Blocks: exact=20661 lossy=11013`) anziché le singole ennuple. Ciò è stato dovuto alla bassa selettività del predicato.
+Tutti i blocchi "lossy" sono dovuti essere ricaricati in memoria e singolarmente controllati, ennupla per ennupla, per valutare la condizione sulla data, come mostrato da `Rows Removed by Index Recheck: 1583248`. Il risultato è un sensibile aumento del tempo di esecuzione della query. Per mitigare i problemi riscontrati, sarebbe utile definire un indice sia sulla data che sul voto dell'esame, per completare il filtraggio operando solo su indici.
 
-> `-> Parallel Seq Scan on exams e (cost=0.00..173667.00 rows=457917 width=10) (actual time=21.091..698.052 rows=356537 loops=3)`
-
-![Query 1 graph](figures/1.svg)
-
-![Query 2 graph](figures/2.svg)
-
-A seguito di approfondimenti, è emerso che questo scenario non rappresenta un fallimento della strategia di tuning, bensì una dimostrazione dell'operato del _Cost-Based Optimizer_ (CBO) di PostgreSQL. La decisione del motore di esecuzione ruota attorno alla selettività del predicato. Sfruttare un indice è computazionalmente vantaggioso solo quando è altamente selettivo, mentre le query in questione lo erano poco. 
-Se il database utilizzasse l'indice per estrarre le $350.000$ righe, sarebbe costretto a eseguire centinaia di migliaia di accessi casuali al disco o alla memoria RAM, rimbalzando continuamente tra i blocchi dell'indice e quelli della tabella.
-
-Il Query Planner, grazie alle statistiche aggiornate in precedenza tramite il comando `ANALYZE`, ha stimato matematicamente questo costo. Ha quindi dedotto che eseguire una scansione completa e lineare dei blocchi fisici contigui della tabella (**Sequential I/O**), distribuendo il carico su più core della CPU (`Workers Launched: 2`), produce un costo computazionale complessivo inferiore rispetto all'overhead generato da un `Index Scan` su larga scala.
+![Query 2 graph](figures/2.svg){latex-placement="h"}
 
 # Conclusioni 
 
-Il presente progetto ha dimostrato empiricamente l'impatto cruciale della progettazione delle strutture fisiche sulle prestazioni di un RDBMS come PostgreSQL. L'utilizzo metodico degli strumenti di diagnostica avanzata (`EXPLAIN ANALYZE BUFFERS`) ha permesso di analizzare la sequenza di operazioni svolte dal sistema e ottenere una metrica basata sui costi di I/O.
+Il presente progetto ha dimostrato l'impatto della progettazione degli indici sulle prestazioni di un DBMS. L'utilizzo degli strumenti di analizi messi a disposizione dal DBMS ha permesso di analizzare la sequenza di operazioni svolte dal sistema e ottenere una metrica basata sui costi di I/O.
 
-Nel contesto di interrogazioni altamente selettive (come dimostrato dalla Query 3), l'implementazione di indici B-Tree sulle chiavi esterne si è rivelata risolutiva. L'azzeramento delle letture fisiche su disco (`read=0`) e la trasformazione di un massiccio _Sequential Scan_ in un efficiente _Bitmap Heap Scan_ hanno abbattuto i tempi di esecuzione del 99.8%. 
-Il DBMS ha dimostrato inoltre che l'indice non rappresenta una soluzione universale, ma uno strumento che va contestualizzato in base alla **selettività** dei dati richiesti, onde evitare i costi proibitivi del _Random I/O_.
+Nel contesto di interrogazioni altamente selettive (come la Query 3), l'implementazione di indici sulle chiavi esterne si è rivelata risolutiva. L'azzeramento delle letture fisiche su disco (`read=0`) e il passaggio da un _Sequential Scan_ a un _Bitmap Heap Scan_ hanno abbattuto di molto i tempi di esecuzione. 
+Si è visto inoltre che l'indice non rappresenta una soluzione universale, ma uno strumento che va contestualizzato in base alla selettività dei dati richiesti, onde evitare gli elevati costi di accesso casuale a memoria secondaria.
 
-L'aggiunta di strutture fisiche supplementari ha comportato un consumo maggiore di spazio su disco e introdurrà un inevitabile _overhead_ durante le future operazioni di scrittura (DML: `INSERT`, `UPDATE`, `DELETE`), poiché il DBMS dovrà mantenere aggiornati gli alberi B-Tree per ogni nuova riga inserita.
-
-==Tuttavia, considerando che il dominio di riferimento è caratterizzato da un carico di lavoro a schiacciante maggioranza di lettura (_Read-Intensive_), questo baratto Spazio/Scrittura in cambio di Letture fulminee è ingegneristicamente obbligatorio per garantire la stabilità, l'efficienza e la futura scalabilità del sistema informativo.==
-
-
-
-
+L'aggiunta di strutture fisiche supplementari ha sicuramente comportato un consumo maggiore di spazio su disco e introdurrà un overhead durante le operazioni di scrittura (`INSERT`, `UPDATE`, `DELETE`), poiché il DBMS dovrà mantenere aggiornati gli indici a seguito di ogni modifica.

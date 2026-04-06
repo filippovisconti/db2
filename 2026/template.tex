@@ -180,10 +180,11 @@ $for(include-before)$
 $include-before$
 $endfor$
 
-% $if(toc)$
-% \setcounter{tocdepth}{$toc-depth$}
-% \tableofcontents
-% $endif$
+$if(toc)$
+\setcounter{tocdepth}{$toc-depth$}
+\tableofcontents
+\newpage
+$endif$
 
 $if(has-frontmatter)$
 \mainmatter

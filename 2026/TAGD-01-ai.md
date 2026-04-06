@@ -10,20 +10,7 @@ template:
 
 L'architettura di un sistema di gestione di basi di dati (DBMS) è strutturata per gestire il flusso delle informazioni partendo dalle richieste ad alto livello fino alla memorizzazione fisica dei dati. Il processo ha inizio con il **Gestore delle interrogazioni**, che riceve istruzioni espresse in linguaggio SQL. Questo componente ha il compito di tradurre le query in operazioni eseguibili come la scansione delle tabelle, l'accesso diretto ai record o l'ordinamento dei dati. Una volta definito il piano d'azione, la richiesta passa al **Gestore dei metodi d'accesso**, il quale opera attraverso quella che viene definita lettura "virtuale". Questo livello a sua volta interagisce con il **Gestore del buffer**, che funge da intermediario per ottimizzare le prestazioni eseguendo letture fisiche attraverso il **Gestore della memoria secondaria**. Quest'ultimo è l'interfaccia finale che comunica direttamente con i dispositivi di **memoria secondaria**, dove i dati risiedono stabilmente.
 
-Nell'analisi di un DBMS didattico come **SimpleDB**, è possibile osservare una scomposizione modulare ancora più dettagliata delle responsabilità:
-
-* **Remote**: agisce come interfaccia di comunicazione, ricevendo le richieste dal client e inoltrando il codice SQL al Planner.
-* **Planner**: è il modulo decisionale che interpella il Parser per ottenere un'analisi sintattica della query, determina il piano di esecuzione ottimale e lo trasmette al Query.
-* **Parser**: esegue l'analisi sintattica formale delle istruzioni ricevute.
-* **Query**: riceve il piano di esecuzione e coordina le chiamate al modulo Record per ogni tabella coinvolta nell'operazione.
-* **Metadata**: si occupa della gestione degli schemi delle tabelle, conservando le informazioni strutturali della base di dati.
-* **Record**: gestisce specificamente i blocchi di memoria destinati a contenere i record delle singole tabelle.
-* **Transaction**: garantisce l'integrità dei dati gestendo la concorrenza tra le diverse operazioni simultanee.
-* **Buffer**: mantiene in memoria principale le pagine di dati più utilizzate per limitare drasticamente la necessità di accessi costosi alla memoria secondaria.
-* **Log**: registra sistematicamente ogni operazione effettuata per garantire l'affidabilità e la possibilità di ripristino del sistema.
-* **File**: costituisce il livello più basso che si occupa della lettura e scrittura effettiva delle pagine sul disco fisico.
-
-La distinzione tra **memoria principale** e **memoria secondaria** è fondamentale per comprendere le prestazioni di un database. I programmi possono fare riferimento esclusivamente a dati presenti nella memoria principale. Tuttavia, le basi di dati devono necessariamente risiedere nella memoria secondaria per due ragioni critiche: le dimensioni e la persistenza dei dati. Di conseguenza, ogni dato memorizzato su disco deve essere trasferito nella memoria principale per poter essere elaborato.
+La distinzione tra **memoria principale** e **memoria secondaria** è fondamentale per comprendere le prestazioni di un database. I programmi possono fare riferimento [esclusivamente]{.underline} a dati presenti nella memoria _principale_. Tuttavia, le basi di dati devono [necessariamente]{.underline} risiedere nella memoria _secondaria_ per due ragioni critiche: le dimensioni e la persistenza dei dati. Di conseguenza, ogni dato memorizzato su disco deve essere trasferito nella memoria principale per poter essere elaborato.
 
 I dispositivi di memoria secondaria sono organizzati fisicamente in **blocchi** di lunghezza fissa, solitamente nell'ordine di alcuni KB. Specularmente, nella memoria centrale viene allocata un'area della stessa dimensione chiamata **pagina**. Le operazioni fondamentali sui dispositivi si limitano alla lettura di un blocco dal disco verso una pagina e alla scrittura di una pagina su un blocco del disco. Nella pratica tecnica, i termini "blocco" e "pagina" sono spesso usati come sinonimi. Il sistema operativo assegna un numero univoco a ogni blocco del disco, garantendo che ogni unità di memorizzazione abbia un indirizzo univoco all'interno del sistema di elaborazione.
 
@@ -79,10 +66,10 @@ Per gestire questa struttura, il DBMS mantiene un **direttorio** (una tabella di
 
 Le operazioni fondamentali offerte dal buffer manager sono:
 
-* **fix** o **pin**: richiesta di un blocco. Se il blocco non è nel buffer, viene eseguita una lettura fisica. Il sistema restituisce l'indirizzo della pagina e incrementa il contatore di pin.
-* **setDirty** (o **setModified**): comunica che la pagina è stata modificata.
-* **unfix** o **unpin**: comunica che il programma ha terminato l'uso della pagina, permettendo al gestore di decrementare il contatore.
-* **force** o **flush**: forza il trasferimento sincrono di una pagina sporca sulla memoria secondaria.
+* **pin**: richiesta di un blocco. Se il blocco non è nel buffer, viene eseguita una lettura fisica. Il sistema restituisce l'indirizzo della pagina e incrementa il contatore di pin.
+* **setDirty**: comunica che la pagina è stata modificata.
+* **unpin**: comunica che il programma ha terminato l'uso della pagina, permettendo al gestore di decrementare il contatore.
+* **flush**: forza il trasferimento sincrono di una pagina sporca sulla memoria secondaria.
 
 Durante l'esecuzione di una `fix`, il gestore cerca la pagina nel buffer. Se non la trova, deve cercare una pagina "libera" (con contatore a zero). Se la pagina scelta per il rimpiazzo è "sporca", deve prima salvarla su disco. Se non ci sono pagine con contatore a zero, il sistema può seguire due politiche:
 
@@ -91,7 +78,7 @@ Durante l'esecuzione di una `fix`, il gestore cerca la pagina nel buffer. Se non
 
 Le scritture su disco possono quindi essere **sincrone** (richieste esplicite di flush) o **asincrone** (decise dal gestore per liberare spazio o per ottimizzare le prestazioni del dispositivo sfruttando i tempi morti).
 
-## Strategie di rimpiazzo (Buffer Replacement)
+## Strategie di rimpiazzo
 
 Quando è necessario caricare un nuovo blocco e il buffer è pieno di pagine non utilizzate, bisogna scegliere quale sacrificare. Le strategie principali sono:
 
@@ -100,22 +87,13 @@ Quando è necessario caricare un nuovo blocco e il buffer è pieno di pagine non
 * **LRU (Least Recently Used)**: sostituisce la pagina che è stata utilizzata meno di recente. È la strategia che meglio approssima la previsione del futuro basandosi sul passato.
 * **Clock**: esegue una scansione circolare partendo dalla posizione successiva all'ultimo rimpiazzo, offrendo un'approssimazione efficiente della LRU.
 
-Consideriamo un esercizio con un buffer di 4 pagine (0-3). Lo stato iniziale all'istante 9 vede:
-
-* Pagina 0: blocco 70, pin 1, load 1, dirty 1.
-* Pagina 1: blocco 33, pin 2, load 7, dirty 0.
-* Pagina 2: blocco 35, pin 0, load 3, unpin 8, dirty 0.
-* Pagina 3: blocco 47, pin 1, load 9, dirty 0.
-
-Se all'istante 11 viene eseguita una `pin(60)`, il sistema cerca una pagina libera (pin=0). L'unica è la pagina 2. Poiché non contiene il blocco 60, deve caricarlo. Il blocco 35 viene rimpiazzato dal 60. Se la strategia fosse **LRU**, all'istante 17 per una `pin(70)`, si cercherebbero pagine con pin=0. Se dopo varie operazioni di `unpin` la pagina 0 fosse libera, essa verrebbe scelta se il suo istante di ultimo utilizzo fosse il più remoto.
-
 ## Organizzazione dei record nei blocchi
 
-Un file è composto logicamente da **record** (ennuple) ma è organizzato fisicamente in **blocchi**. Poiché le dimensioni di questi due elementi sono solitamente diverse, è necessario gestire la loro mappatura. I record possono essere a **lunghezza fissa** o **variabile**. I blocchi possono essere **omogenei** (record di una sola relazione) o **eterogenei** (record di relazioni diverse, utile per ottimizzare i join fisici).
+Un file è ==composto logicamente da **record**== (ennuple) ma è ==organizzato fisicamente in **blocchi**.== Poiché le dimensioni di questi due elementi sono solitamente diverse, è necessario gestire la loro mappatura. I record possono essere a **lunghezza fissa** o **variabile**. I blocchi possono essere **omogenei** (record di una sola relazione) o **eterogenei** (record di relazioni diverse, utile per ottimizzare i join fisici).
 
-Se un record è interamente contenuto in un blocco, si parla di organizzazione **unspanned**. Se un record può essere diviso tra più blocchi, si parla di **spanned**. In caso di record a lunghezza fissa $L_R$ e blocchi di dimensione $L_B$, il **fattore di blocco** (numero di record per blocco) è calcolato come: $f = \lfloor L_B / L_R \rfloor$
+Se un record è interamente contenuto in un blocco, si parla di organizzazione **unspanned**. Se un record può essere diviso tra più blocchi, si parla di **spanned**. In caso di record a lunghezza fissa $L_R$ e blocchi di dimensione $L_B$, il ==**fattore di blocco**== (numero di record per blocco) è calcolato come: ==$f = \lfloor L_B / L_R \rfloor$==.
 
-L'organizzazione interna di una pagina prevede solitamente un **dizionario di pagina** e una **parte utile**. Una struttura comune prevede due stack che crescono in direzioni opposte: uno stack per il dizionario (puntatori alle ennuple $\*t1, \*t2, \dots$) e uno stack per i dati effettivi ($t1, t2, \dots$). Questo permette di gestire record di lunghezza variabile. La pagina include anche informazioni di controllo della struttura fisica e del file system, oltre a un bit di parità per il controllo degli errori.
+L'organizzazione interna di una pagina prevede solitamente un **dizionario di pagina** e una **parte utile**. Una struttura comune prevede due stack che crescono in direzioni opposte: uno stack per il dizionario (puntatori alle ennuple $*t1, *t2, \dots$) e uno stack per i dati effettivi ($t1, t2, \dots$). Questo permette di gestire record di lunghezza variabile. La pagina include anche informazioni di controllo della struttura fisica e del file system, oltre a un bit di parità per il controllo degli errori.
 
 ## Strutture fisiche e file disordinati
 
@@ -124,31 +102,19 @@ Le strutture fisiche si dividono in:
 * **Primarie**: definiscono come i record sono organizzati nel file.
 * **Secondarie**: strutture ausiliarie (come gli indici) per velocizzare l'accesso.
 
-Le tipologie principali sono sequenziali, calcolate (Hash) o ad albero. Tra le sequenziali, la più semplice è la **struttura disordinata** (chiamata anche file seriale, heap o "entry sequenced"). In questa organizzazione, non esiste un ordine logico: i nuovi record vengono inseriti solitamente in coda o occupando i "voti" lasciati da cancellazioni precedenti.
+Le tipologie principali sono:
 
-Le operazioni su un file disordinato includono la scansione (`beforeFirst`, `next`), la lettura di campi (`getInt`, `getString`) e l'aggiornamento (`setInt`, `insert`, `delete`). L'implementazione della `next` verifica se nel blocco corrente ci sono altri record; in caso negativo, passa al primo record del blocco successivo. Il costo di ricerca e inserimento in un file disordinato è **lineare** rispetto al numero di blocchi del file, rendendolo inefficiente per basi di dati di grandi dimensioni senza l'ausilio di indici secondari. Sebbene l'inserimento potrebbe sembrare $O(1)$ scrivendo in coda, la necessità di verificare vincoli di integrità (come l'unicità della chiave) richiede comunque una scansione completa, riportando il costo a $O(N)$.
+* sequenziali,
+* calcolate (Hash),
+*  o ad albero.
 
-# Strutture ordinate e File Hash
+> Tra le sequenziali, la più semplice è la **struttura disordinata** (chiamata anche file seriale, ==heap== o "entry sequenced"). In questa organizzazione, non esiste un ordine logico: i nuovi record vengono inseriti solitamente in coda o occupando i "vuoti" lasciati da cancellazioni precedenti.
 
-In un sistema di gestione di basi di dati, l'organizzazione fisica dei record può seguire criteri logico-matematici precisi per ottimizzare il reperimento delle informazioni. Una delle modalità fondamentali è la **struttura ordinata**, in cui ogni record, ovvero ogni ennupla della relazione, occupa una posizione fisica specifica determinata dal valore di un particolare campo. Questo campo viene definito **chiave** o, con maggior rigore accademico, **pseudochiave**, poiché funge da criterio di ordinamento ma non è necessariamente una chiave primaria in senso logico.
+Le operazioni su un file disordinato includono la scansione (`beforeFirst`, `next`), la lettura di campi (`getInt`, `getString`) e l'aggiornamento (`setInt`, `insert`, `delete`). ==L'implementazione della `next` verifica se nel blocco corrente ci sono altri record; in caso negativo, passa al primo record del blocco successivo==. Il costo di ricerca e inserimento in un file disordinato è **lineare** rispetto al numero di blocchi del file, rendendolo inefficiente per basi di dati di grandi dimensioni senza l'ausilio di indici secondari. Sebbene l'inserimento potrebbe sembrare $O(1)$ scrivendo in coda, ==la necessità di verificare vincoli di integrità== (come l'unicità della chiave) ==richiede comunque una scansione completa==, riportando il costo a $O(N)$.
 
-Si consideri un esempio basato su una tabella composta dagli attributi Matricola, Cognome e Nome. Se il file è **ordinato per Matricola**, i record appariranno in una sequenza numerica crescente:
+# Strutture ordinate
 
-* 15 Neri Piero
-* 21 Rossi Mario
-* 30 Bianchi Gino
-* 38 Verdi Luigi
-* 40 Rossi Mario
-* 53 Neri Luca
-
-Alternativamente, la stessa base di dati potrebbe essere mantenuta in una struttura **ordinata per Cognome**. In questo scenario, l'ordine alfabetico prevale su quello numerico della matricola, portando a una disposizione differente:
-
-* 30 Bianchi Gino
-* 15 Neri Piero
-* 53 Neri Luca
-* 21 Rossi Mario
-* 40 Rossi Mario
-* 38 Verdi Luigi
+In un sistema di gestione di basi di dati, l'organizzazione fisica dei record può seguire criteri logico-matematici precisi per ottimizzare il reperimento delle informazioni. Una delle modalità fondamentali è la **struttura ordinata**, in cui ogni record, ovvero ogni ennupla della relazione, occupa una posizione fisica specifica determinata dal valore di un particolare campo. Questo campo viene definito **pseudochiave**, poiché funge da criterio di ordinamento ma non è necessariamente una chiave primaria in senso logico.
 
 L'adozione di una struttura ordinata comporta sfide significative per quanto riguarda la manutenzione della coerenza durante le operazioni di modifica. Gli **aggiornamenti** richiedono spesso interventi strutturali pesanti: l'inserimento di un nuovo record non può avvenire semplicemente in coda al file (come in una struttura heap), ma deve rispettare la posizione prevista dal criterio di ordinamento. Ad esempio, inserendo il record "66 Bruni Marco" in una tabella ordinata per cognome, il sistema deve individuare la posizione corretta (tra Bianchi e Neri) e traslare fisicamente tutti i record successivi per creare lo spazio necessario. Lo stesso problema si presenta con campi a lunghezza variabile quando un valore viene aggiornato con una stringa più lunga della precedente, causando uno slittamento dei record contigui.
 
@@ -161,13 +127,12 @@ Per gestire queste inefficienze, si adottano diverse strategie, spesso combinate
 
 Sebbene le strutture ordinate permettano teoricamente l'uso della **ricerca binaria**, la loro applicazione pratica nei DBMS è limitata. La difficoltà risiede nella struttura fisica dei file: come si individua esattamente la "metà" di un file memorizzato su disco per poi procedere ricorsivamente? Per tale ragione, nelle basi di dati relazionali, queste strutture vengono utilizzate quasi esclusivamente in combinazione con gli indici, dando vita ai file **ISAM** (_Indexed Sequential Access Method_) o a file ordinati dotati di un indice primario. Restano comunque strumenti preziosi quando è necessario fornire risultati già ordinati all'utente o come fase preparatoria per operazioni costose come il merge-join.
 
-Una tecnica radicalmente differente per l'accesso efficiente ai dati è rappresentata dai **File Hash**. Questa organizzazione mira a fornire un accesso diretto o associativo basato sul valore di un campo di ricerca. In un sistema come SimpleDB, l'efficienza è evidente nel passaggio dal metodo di scansione totale `beforeFirst()` a un metodo mirato `beforeFirst(searchKey)`. Questa tecnica traspone sul disco i concetti delle **tavole hash** utilizzate nella memoria centrale.
+# File Hash
+Una tecnica radicalmente differente per l'accesso efficiente ai dati è rappresentata dai **File Hash**. Questa organizzazione mira a fornire un accesso diretto o associativo basato sul valore di un campo di ricerca. Questa tecnica traspone sul disco i concetti delle **tavole hash** utilizzate nella memoria centrale.
 
-L'obiettivo di una tavola hash è l'accesso diretto a un record tramite il valore di una chiave. Se lo spazio dei possibili valori della chiave è paragonabile al numero di record effettivi (ad esempio, 1000 studenti con matricole da 1 a 1000), è possibile utilizzare un semplice array dove l'indice corrisponde alla chiave. Tuttavia, quando i possibili valori sono molto più numerosi di quelli utilizzati (ad esempio, 40 studenti con matricole a 6 cifre, che generano un milione di combinazioni potenziali), l'uso di un array diretto causerebbe un enorme spreco di memoria.
+==L'obiettivo di una tavola hash è l'accesso diretto a un record tramite il valore di una chiave.== Se lo spazio dei possibili valori della chiave è paragonabile al numero di record effettivi (ad esempio, 1000 studenti con matricole da 1 a 1000), è possibile utilizzare un semplice array dove l'indice corrisponde alla chiave. Tuttavia, quando i possibili valori sono molto più numerosi di quelli utilizzati (ad esempio, 40 studenti con matricole a 6 cifre, che generano un milione di combinazioni potenziali), l'uso di un array diretto causerebbe un enorme spreco di memoria.
 
 La soluzione consiste nell'utilizzare una **funzione hash**, che associa a ogni valore della chiave un "indirizzo" in uno spazio di dimensione contenuta, paragonabile al numero di record da memorizzare. Poiché lo spazio delle chiavi è vasto e quello degli indirizzi è limitato, la funzione [non]{.underline} può essere iniettiva, rendendo inevitabili le **collisioni** (ovvero quando chiavi diverse corrispondono allo stesso indirizzo). Una buona funzione hash deve distribuire i valori in modo casuale e uniforme per minimizzare tali eventi. Un esempio didattico è la funzione modulo: $K \pmod{n}$, dove $n$ è la dimensione della tavola.
-
-Si consideri un diagramma di flusso che illustra il processo: a sinistra abbiamo l'insieme delle chiavi (es. "John Smith", "Lisa Smith", "Sam Doe", "Sandra Dee"). Al centro agisce la **hash function** che mappa queste stringhe in valori numerici a destra, definiti **hashes**. In questo schema specifico, "Lisa Smith" viene mappata all'indirizzo `01`, "Sam Doe" al `04`, mentre "John Smith" e "Sandra Dee" collidono entrambi sull'indirizzo `02` (evidenziato graficamente per indicare l'anomalia). Gli indirizzi disponibili vanno da `00` a `15`.
 
 Analizziamo un esercizio numerico con 8 record dotati delle seguenti chiavi: 240772, 240810, 449726, 447004, 453900, 281425, 281267, 405154. Utilizzando una tavola hash con 10 posizioni e la funzione $K \pmod{10}$, la distribuzione risulta:
 
@@ -190,34 +155,28 @@ Per la **gestione delle collisioni**, si impiegano diverse tecniche:
 
 Il concetto si estende al **File Hash** organizzato per blocchi. Qui, ogni "indirizzo" della funzione hash punta a un intero blocco che può contenere più record (fattore di blocco $F$). Lo spazio degli indirizzi si riduce: se $F = 10$, per 50 posizioni totali si possono usare solo 5 blocchi (funzione $\pmod{5}$ invece di $\pmod{50}$). Le collisioni che eccedono la capacità del blocco (_overflow_) sono tipicamente gestite tramite il collegamento di nuovi blocchi.
 
-Riprendendo l'esempio degli 8 record con $F = 5$ e funzione $K \pmod{2}$:
+Il confronto tra file hash normale e file hash organizato in blocchi mostra che quest'ultimo è più efficiente. Con 40 record:
 
-* **Blocco 0** (chiavi pari): riceve 240810, 453900, 240772, 405154, 447004. Avendo raggiunto il limite di 5 record, la chiave successiva con resto 0 (449726) deve andare in overflow.
-* **Blocco 1** (chiavi dispari): riceve 281425, 281267.
-
-Il confronto tra tavola hash e file hash mostra che quest'ultimo è più efficiente. Con 40 record:
-
-* Tavola hash (50 posizioni): 12 record in overflow, costo medio 1,425.
-* File hash (5 blocchi da 10): solo 2 record in overflow, costo medio 1,05. Questa efficienza superiore deriva dal fatto che il blocco funge da "ammortizzatore" per le collisioni locali.
+* File hash (50 posizioni): 12 record in overflow, costo medio 1,425.
+	* File hash (5 blocchi da 10): solo 2 record in overflow, costo medio 1,05.
+		* Questa efficienza superiore deriva dal fatto che il blocco funge da "ammortizzatore" per le collisioni locali.
 
 Le stime statistiche confermano che all'aumentare del fattore di blocco $F$, la lunghezza media delle catene di overflow e il costo di accesso diminuiscono drasticamente, anche con coefficienti di riempimento elevati. Ad esempio, con un riempimento del $90\%$ ($T/(F \times B) = 0.9$):
 
 * Se $F = 1$, il costo è $5,495$.
 * Se $F = 10$, il costo scende a $1,345$.
 
-In conclusione, il file hash è l'organizzazione più efficiente per l'accesso puntuale, con un costo medio vicino all'unità. Tuttavia, non è adatto a ricerche per intervalli e tende a degradare se lo spazio diventa saturo. Per ovviare alla rigidità delle dimensioni, si ricorre a tecniche di **hashing dinamico**, come l'hashing estendibile o lineare, che permettono al file di adattarsi alla variazione del numero di record nel tempo.
+> Il file hash è l'==organizzazione più efficiente per l'accesso puntuale==, con un costo medio vicino all'unità. Tuttavia, ==non è adatto a ricerche per intervalli e tende a degradare se lo spazio diventa saturo==. Per ovviare alla rigidità delle dimensioni, si ricorre a tecniche di **hashing dinamico**, come l'hashing estendibile o lineare, che permettono al file di adattarsi alla variazione del numero di record nel tempo.
 
 ## Analisi delle collisioni e organizzazione delle strutture di accesso
 
 L'efficienza di un file hash è strettamente legata alla gestione delle collisioni e alla lunghezza delle catene di overflow. La stima della lunghezza media di queste catene varia in funzione di quattro parametri fondamentali: il numero totale di record esistenti ($T$), il numero di blocchi allocati ($B$), il fattore di blocco ($F$) e il coefficiente di riempimento, definito dal rapporto $T/(F \times B)$. All'aumentare del coefficiente di riempimento, la probabilità di collisione cresce, influenzando direttamente il costo di accesso.
 
-Dalle analisi statistiche emerge che, mantenendo un coefficiente di riempimento costante, un fattore di blocco $F$ più elevato riduce drasticamente la lunghezza media delle catene di overflow. Ad esempio, con un coefficiente di riempimento del $0.9$ (file molto pieno), se $F=1$ la lunghezza media delle catene è di $4.495$, mentre se $F=10$ scende a soli $0.345$. Il costo di un'operazione, inteso come numero di accessi necessari, è calcolato sommando l'unità (l'accesso al blocco primario) alla lunghezza media delle catene di overflow. Nelle stesse condizioni di riempimento ($0.9$), il costo passa da $5.495$ per $F=1$ a $1.345$ per $F=10$. In generale, un file hash ben progettato mantiene un costo medio di poco superiore all'unità. Sebbene il caso peggiore teorico sia estremamente costoso, la sua probabilità statistica è talmente bassa da poter essere ignorata nelle applicazioni reali.
-
-Il file hash rappresenta l'organizzazione più efficiente per l'accesso diretto basato su valori della chiave con condizioni di uguaglianza, operazione definita accesso puntuale. Tuttavia, presenta limitazioni strutturali: non è efficiente per le ricerche basate su intervalli e tende a degenerare se lo spazio sovrabbondante si riduce. Queste strutture funzionano correttamente solo con file la cui dimensione non varia sensibilmente nel tempo, a meno di non ricorrere a tecniche di hashing dinamico, come l'hashing estendibile o lineare.
+Dalle analisi statistiche emerge che, mantenendo un coefficiente di riempimento costante, un fattore di blocco $F$ più elevato riduce drasticamente la lunghezza media delle catene di overflow. In generale, un file hash ben progettato mantiene un costo medio di poco superiore all'unità. Sebbene il caso peggiore teorico sia estremamente costoso, la sua probabilità statistica è talmente bassa da poter essere ignorata nelle applicazioni reali.
 
 ## Hashing estendibile
 
-L'hashing estendibile supera la rigidità delle strutture statiche poiché il numero di blocchi (o bucket) non è predefinito. Questa tecnica utilizza una directory dei blocchi che può variare di dimensione, sebbene solitamente cresca in modo lento. Il sistema si basa sulla rappresentazione binaria del valore di hash ottenuto dalla chiave.
+L'hashing _estendibile_ supera la rigidità delle strutture statiche poiché il ==numero di blocchi (o bucket) **non** è predefinito==. Questa tecnica utilizza una [directory dei blocchi che può variare di dimensione]{.underline}, sebbene solitamente cresca in modo lento. Il sistema si basa sulla rappresentazione binaria del valore di hash ottenuto dalla chiave.
 
 Le caratteristiche tecniche prevedono:
 
@@ -243,7 +202,7 @@ Un indice $I$ è a sua volta un file composto da record a due campi: la chiave e
 
 Un'ulteriore distinzione riguarda la copertura dei valori:
 
-* **Indice Denso**: contiene un riferimento per ogni singolo valore della chiave presente nel file. Gli indici secondari devono necessariamente essere densi.
+* **Indice Denso**: contiene un riferimento per ogni singolo valore della chiave presente nel file. Gli indici **secondari** devono **necessariamente essere densi**.
 * **Indice Sparso**: contiene riferimenti solo per alcuni valori della chiave (solitamente uno per ogni blocco del file). Un indice primario è solitamente sparso per risparmiare spazio, ma può essere denso per velocizzare verifiche di esistenza senza accedere al file dati.
 
 Negli indici densi si possono usare puntatori ai blocchi (più compatti) o puntatori ai record. Questi ultimi permettono di eseguire alcune operazioni (come conteggi o verifiche) direttamente sull'indice senza accedere al file principale. Se la pseudochiave non è identificante (più record con lo stesso valore), l'indice primario sparso può puntare solo ai blocchi con valori "nuovi", mentre l'indice secondario può gestire la duplicazione dei valori della chiave ripetendo la coppia (chiave, riferimento) o utilizzando un livello di indirezione con liste di puntatori.
@@ -272,12 +231,16 @@ L'indice sparso risulta significativamente più piccolo ($50$ blocchi contro i $
 
 Poiché gli indici sono file ordinati, è possibile costruire indici sugli indici per evitare scansioni sequenziali tra i blocchi dell'indice stesso. Questo crea una struttura multilivello dove l'indice di livello superiore è sempre primario e sparso rispetto a quello inferiore. Il processo prosegue fino a ottenere un livello composto da un solo blocco (la radice).
 
-Il numero di blocchi al livello $j$ è dato da: $N_j = N_{j-1} / (B/(K+P))$ Il numero di blocchi a cui un blocco fa riferimento è detto _fan-out_. Negli indici multilivello la profondità è solitamente ridotta (tra 3 e 5). Con un fan-out di $500$, un indice denso di $2.000$ blocchi richiede solo 3 livelli ($N_1=2000, N_2=4, N_3=1$), mentre uno sparso di $50$ blocchi ne richiede solo 2 ($N_1=50, N_2=1$).
+Il numero di blocchi al livello $j$ è dato da: $N_j = N_{j-1} / (B/(K+P))$.
+Il numero di blocchi a cui un blocco fa riferimento è detto _fan-out_. 
+Negli indici multilivello la profondità è solitamente ridotta (tra 3 e 5). 
+
+>Con un fan-out di $500$, un indice denso di $2.000$ blocchi richiede solo 3 livelli ($N_1=2000, N_2=4, N_3=1$), mentre uno sparso di $50$ blocchi ne richiede solo 2 ($N_1=50, N_2=1$).
 
 I DBMS moderni utilizzano strutture più sofisticate come i **B-tree** per gestire l'elevata dinamicità. Un B-tree è un albero di ricerca bilanciato in cui ogni nodo corrisponde a un blocco. Caratteristiche principali:
 
 * Mantenimento del perfetto bilanciamento (foglie allo stesso livello).
-* Riempimento parziale dei nodi (mediamente $70%$, con un minimo garantito del $50%$).
+* Riempimento parziale dei nodi (mediamente $70\%$, con un minimo garantito del $50\%$).
 * In un albero di ordine $P$, ogni nodo ha fino a $P$ figli e $P-1$ etichette ordinate.
 * L'i-esimo sottoalbero contiene chiavi $K$ tali che $K_{i-1} \leq K < K_i$.
 
@@ -285,14 +248,12 @@ Negli inserimenti, se una foglia è piena, avviene uno **split** (divisione del 
 
 Si distinguono due varianti:
 
-1. **B+ tree**: Tutte le chiavi e i riferimenti ai dati compaiono nelle foglie. Le foglie sono collegate tra loro in una lista per ottimizzare le ricerche su intervalli. I nodi intermedi contengono solo chiavi per guidare la ricerca. È la struttura più usata nei DBMS.
-2. **B tree**: Le chiavi e i riferimenti ai dati possono trovarsi anche nei nodi intermedi e non vengono ripetuti nelle foglie.
+1. **B+ tree**: ==Tutte le chiavi e i riferimenti ai dati compaiono nelle foglie==. Le **foglie** sono **collegate** tra loro in una lista per ottimizzare le ricerche su intervalli. I nodi intermedi contengono solo chiavi per guidare la ricerca. È la struttura più usata nei DBMS.
+2. **B tree**: ==Le chiavi e i riferimenti ai dati possono trovarsi **anche** nei nodi intermedi== e non vengono ripetuti nelle foglie.
 
 Il costo di ricerca in queste strutture è pari alla profondità dell'albero. Grazie alla bufferizzazione della radice e dei primi livelli, il costo reale di un accesso diretto scende spesso a soli $2$ o $3$ accessi fisici.
 
-# Organizzazione fisica ed esecuzione delle interrogazioni
-
-L'architettura di un sistema di gestione di basi di dati (DBMS) è strutturata per trasformare una richiesta espressa in un linguaggio dichiarativo ad alto livello in operazioni fisiche sulla memoria secondaria. Il processo segue una gerarchia precisa di moduli: il **Gestore delle interrogazioni** riceve istruzioni in linguaggio SQL e determina la strategia di esecuzione (scansione, accesso diretto o ordinamento). Questa strategia viene passata al **Gestore dei metodi d'accesso**, che effettua una cosiddetta "lettura virtuale". Questo livello interagisce con il **Gestore del buffer**, responsabile del coordinamento tra memoria principale e secondaria tramite "letture fisiche". Il comando giunge infine al **Gestore della memoria secondaria**, che opera direttamente sui dispositivi di memorizzazione fisica.
+# Esecuzione delle interrogazioni
 
 L'esecuzione e l'ottimizzazione delle interrogazioni sono affidate al **Query Processor**, o Ottimizzatore. La necessità di questo modulo deriva dal concetto di ==indipendenza dei dati==: le interrogazioni SQL descrivono insiemi di ennuple con pochissima proceduralità, lasciando al sistema il compito di scegliere la migliore strategia realizzativa tra diverse alternative possibili. Il **processo di esecuzione** si articola in fasi **sequenziali**:
 
@@ -323,11 +284,15 @@ I DBMS offrono operatori fisici che implementano gli operatori algebrici. Gli op
 
 ==La **Scansione** consiste nell'accesso sequenziale a una tabella.== Permette la lettura completa, la selezione su qualunque predicato, la proiezione (senza eliminazione di duplicati) e la gestione delle ennuple correnti (inserimento, modifica, eliminazione). I metodi offerti sono `open`, `next`, `read`, `modify`, `insert`, `delete` e `close`. ==Il **costo** è **lineare** rispetto al **numero di blocchi** del file==, ovvero $O(N)$.
 
-==L'**Accesso diretto** è possibile solo se supportato da strutture fisiche come indici o hash.== L'accesso basato su indice è utile per selezioni puntuali ($A_{i}=v$) o su intervallo ($v_{1} \leq A_{i} \leq v_{2}$), a patto che l'indice sia selettivo (ossia che il risultato contenga poche ennuple rispetto alla relazione di partenza). ==Il **costo** ha **due** componenti: la _profondità dell'indice_ (logaritmica) e l'_accesso ai record effettivi_== (che dipende dalla selettività). In caso di **selezione congiuntiva** (AND) con più indici disponibili, il sistema può usare l'indice più selettivo e valutare l'altra condizione successivamente, oppure usare entrambi gli indici per ottenere liste di indirizzi ed eseguirne l'intersezione. Se gli indirizzi sono ai record, l'intersezione identifica esattamente i record cercati; se sono ai blocchi, identifica i blocchi potenzialmente utili. Per la **selezione disgiuntiva** (OR), **se entrambi i campi sono selettivi e indicizzati**, si esegue l'**unione** dei risultati; **se anche uno solo non è selettivo**, l'uso dell'indice è **inutile** e si preferisce la scansione sequenziale.
+==L\'**Accesso diretto** è possibile **solo** se supportato da strutture fisiche come indici o hash.== L'accesso basato su indice è utile per selezioni puntuali ($A_{i}=v$) o su intervallo ($v_{1} \leq A_{i} \leq v_{2}$), a patto che l'indice sia selettivo (ossia che il risultato contenga poche ennuple rispetto alla relazione di partenza). ==Il **costo** ha **due** componenti: la _profondità dell'indice_ (logaritmica) e l\'_accesso ai record effettivi_== (che dipende dalla selettività). 
 
-Il costo degli indici su campi non chiave è composto dalla profondità dell'indice e il costo dell'accesso ai record:
+In caso di **selezione congiuntiva** (AND) con più indici disponibili, il sistema può usare l'indice più selettivo e valutare l'altra condizione successivamente, oppure usare entrambi gli indici per ottenere liste di indirizzi ed eseguirne l'intersezione. Se gli indirizzi sono ai record, l'intersezione identifica esattamente i record cercati; se sono ai blocchi, identifica i blocchi potenzialmente utili. 
 
-* **Indice secondario**: i record sono sparpagliati, quindi potrebbe servire un accesso per ogni record trovato.
+Per la **selezione disgiuntiva** (OR), **se entrambi i campi sono selettivi e indicizzati**, si esegue l'**unione** dei risultati; **se anche uno solo non è selettivo**, l'uso dell'indice è **inutile** e si preferisce la scansione sequenziale.
+
+Il costo degli indici su campi _non chiave_ è composto dalla profondità dell'indice e il costo dell'accesso ai record:
+
+* **Indice secondario**: i record sono sparpagliati, quindi potrebbe servire **un accesso per ogni record trovato**.
 * **Indice primario**: i ==record sono fisicamente consecutivi==, quindi il **costo** è approssimativamente pari al **numero di record** trovati **diviso il fattore di blocco**.
 
 L'**Accesso diretto basato su hash** è estremamente efficiente per interrogazioni puntuali, con un costo approssimabile a una costante, ma **non** per ricerche su intervallo. Per predicati congiuntivi e disgiuntivi, vale lo stesso discorso fatto per gli indici.
@@ -348,12 +313,15 @@ Il costo complessivo per un file di $N$ blocchi è circa $2 \times N \times \log
 
 * Una passata se $P \geq N$.
 * Due passate se $P^{2} \geq N$ (ovvero $P \geq \sqrt{N}$).
-	* In questo caso ha un ==costo di $3 \times N$ ==:si legge il file, lo si scrive ordinato in run, si rilegge per il merge finale senza memorizzare il risultato intermedio.
+	* In questo caso ha un ==costo di $3 \times N$==.
+	* Si legge il file, lo si scrive ordinato in run, si rilegge per il merge finale senza memorizzare il risultato intermedio.
 * Tre passate se $P^{3} \geq N$. 
 
 ==In generale, con $i$ passate si può ordinare un file di $P^{i}$ blocchi. Il numero di passate necessario è il più piccolo intero $i$ per cui $P \geq \sqrt[i]{N}$.==
 
-Ad esempio, per un file di $N=10.000.000$ di blocchi con un buffer di $10.000$ pagine ($100MB$), si potrebbero ordinare $10.000$ blocchi alla volta ottenendo $1000$ porzioni ordinate. Fondendo queste porzioni con un merge a $1000$ vie, l'ordinamento si completerebbe in un unico passo di merge (due passate totali). In sintesi, ==se $P \geq \sqrt{N}$, l'operazione richiede $3 \times N$ accessi==.
+Ad esempio, per un file di $N=10.000.000$ di blocchi con un buffer di $10.000$ pagine ($100MB$), si potrebbero ordinare $10.000$ blocchi alla volta ottenendo $1000$ porzioni ordinate. Fondendo queste porzioni con un merge a $1000$ vie, l'ordinamento si completerebbe in un unico passo di merge (due passate totali). 
+
+> In sintesi, ==se $P \geq \sqrt{N}$, l'operazione richiede $3 \times N$ accessi==.
 
 > Vedere Esercizio 5 di [[26/02/2013]{.underline}](https://tagd.inf.uniroma3.it/compitiPDF/20130226bdIIsoluz.pdf)
 
@@ -409,7 +377,9 @@ Durante la scansione del primo file, le ennuple vengono indirizzate ai bucket in
 * I record (B 903) e (P 903) finiscono nel **Bucket 03**.
 * I record (D 904), (H 904), (L 907), (N 907) e (S 905) vengono indirizzati al **Bucket 04**.
 
-Lo stesso processo viene applicato al secondo file (con chiavi come X901, Y910, Z911). Una volta completata la partizione, il sistema confronta solo i bucket omologhi. Sfruttando i buffer, il **costo complessivo** è dato da **due passate di lettura e una di scrittura**: ==$3 \times (B_{1}+B_{2})$==. ==L'algoritmo è ottimale se le partizioni di **almeno** un file entrano **interamente** in memoria, condizione verificata se $P^{2} > \min(B_{1}, B_{2})$.==
+Lo stesso processo viene applicato al secondo file (con chiavi come X901, Y910, Z911). Una volta completata la partizione, il sistema confronta solo i bucket omologhi. 
+
+> Sfruttando i buffer, il **costo complessivo** è dato da **due passate di lettura e una di scrittura**: ==$3 \times (B_{1}+B_{2})$==. ==L'algoritmo è ottimale se le partizioni di **almeno** un file entrano **interamente** in memoria, condizione verificata se $P^{2} > \min(B_{1}, B_{2})$.==
 
 ## Confronto tra le strategie e criteri di scelta
 
@@ -505,7 +475,7 @@ Postgres offre comandi avanzati per la gestione fisica:
 * `CLUSTER table_name [ USING index_name ]`: riordina fisicamente la tabella in base a un indice esistente, **ma non viene persistito**.
 * `VACUUM [ ANALYZE ] table`: recupera spazio e aggiorna le statistiche per l'ottimizzatore.
 
-## Euristiche di progettazione fisica e Tuning
+## Euristiche di progettazione fisica e tuning
 
 La scelta degli indici è il cuore della progettazione fisica. Molti sistemi suggeriscono di definire indici sulle chiavi primarie poiché coinvolte frequentemente in join e selezioni. Il processo di _==tuning==_ consiste nell'==aggiungere o rimuovere indici o modificare strutture primarie== se le prestazioni non sono soddisfacenti, verificando l'uso effettivo degli indici tramite i comandi `EXPLAIN` o `SHOW PLAN`.
 
@@ -529,6 +499,8 @@ Shasha propone un albero di decisione per la scelta della struttura primaria:
     * Se la chiave **è** sequenziale: **Hash**.
   * Se **non** si effettuano ricerche per intervalli: **Hash**.
 
+> ==Risultati sperimentali confermano che per interrogazioni non selettive l'Hash Join è superiore, mentre per query con selezioni forti il Nested Loop è la scelta ottimale.==
+
 ## Esercizio di valutazione dei costi (9 Aprile 2018)
 
 Si considerino le relazioni $R1(\underline{A}, B, C)$ e $R2(\underline{D}, E, F)$ con indici sulle chiavi primarie. Dati:
@@ -546,6 +518,129 @@ Si considerino le relazioni $R1(\underline{A}, B, C)$ e $R2(\underline{D}, E, F)
 1. Accesso alle 50 ennuple di $R1$ (scansione o indice): trascurabile.
 2. Per ogni ennupla (50 volte), accesso diretto a $R2$ tramite indice su chiave primaria $D$: $Costo = 50 \times (p + 1) = 50 \times 5 = 250$ accessi. In questo caso, la selettività della condizione su $B$ rende il Nested Loop estremamente più vantaggioso rispetto all'Hash Join.
 
-### Analisi reale su Postgres
+\newpage
+# SimpleDB
+<!-- 
+Nell'analisi di un DBMS didattico come **SimpleDB**, è possibile osservare una scomposizione modulare ancora più dettagliata delle responsabilità:
 
-Sperimentando con script SQL, si osserva che la dimensione reale dei blocchi in Postgres è tipicamente 8 KB. Se un'ennupla di tre attributi numerici occupa circa 24 B, il fattore di blocco teorico sarebbe $8192/24 \approx 333$. Tuttavia, l'uso del comando `ANALYZE VERBOSE` rivela un fattore reale di 157, poiché una parte significativa del blocco è occupata da informazioni di servizio e overhead del sistema. ==Risultati sperimentali confermano che per interrogazioni non selettive l'Hash Join è superiore, mentre per query con selezioni forti il Nested Loop è la scelta ottimale.==
+* **Remote**: agisce come interfaccia di comunicazione, ricevendo le richieste dal client e inoltrando il codice SQL al Planner.
+* **Planner**: è il modulo decisionale che interpella il Parser per ottenere un'analisi sintattica della query, determina il piano di esecuzione ottimale e lo trasmette al Query.
+* **Parser**: esegue l'analisi sintattica formale delle istruzioni ricevute.
+* **Query**: riceve il piano di esecuzione e coordina le chiamate al modulo Record per ogni tabella coinvolta nell'operazione.
+* **Metadata**: si occupa della gestione degli schemi delle tabelle, conservando le informazioni strutturali della base di dati.
+* **Record**: gestisce specificamente i blocchi di memoria destinati a contenere i record delle singole tabelle.
+* **Transaction**: garantisce l'integrità dei dati gestendo la concorrenza tra le diverse operazioni simultanee.
+* **Buffer**: mantiene in memoria principale le pagine di dati più utilizzate per limitare drasticamente la necessità di accessi costosi alla memoria secondaria.
+* **Log**: registra sistematicamente ogni operazione effettuata per garantire l'affidabilità e la possibilità di ripristino del sistema.
+* **File**: costituisce il livello più basso che si occupa della lettura e scrittura effettiva delle pagine sul disco fisico. -->
+
+L'architettura di SimpleDB si articola in una serie di moduli cooperanti che gestiscono l'intero ciclo di vita di una richiesta, dalla ricezione della query SQL alla manipolazione fisica dei bit sul disco. Al livello più esterno, il modulo **JDBC** funge da interfaccia di ingresso, ricevendo le richieste dal client e inoltrando il codice SQL al **Planner**. Il Planner ha il compito di determinare la strategia di esecuzione ottimale; per fare ciò, chiama il **Parser** per l'analisi sintattica della stringa SQL, genera un piano di accesso e lo trasmette al modulo **Query**.
+
+Il modulo Query riceve il piano d'azione ed esegue le operazioni logiche interagendo con il modulo **Record** per ogni tabella coinvolta. La gestione della struttura dei dati è affidata ai **Metadata**, che amministrano gli schemi delle tabelle, mentre il modulo Record gestisce l'organizzazione dei blocchi per ospitare i record. La correttezza e l'integrità del sistema sono garantite dal modulo **Transaction**, incaricato di gestire la concorrenza tra utenti e l'affidabilità dei dati in caso di guasti.
+
+La gestione della memoria si basa su tre componenti fondamentali: il **Buffer**, che mantiene in memoria le pagine per limitare gli accessi fisici al disco; il **File**, responsabile delle operazioni di lettura e scrittura delle pagine sul supporto fisico; e il **Log**, che tiene traccia di ogni operazione per permettere il recovery.
+
+## Livelli di astrazione e flussi dei dati
+
+Il sistema opera attraverso una gerarchia di astrazioni che trasformano una visione relazionale dei dati in una visione a blocchi. Il flusso delle chiamate parte dall'alto verso il basso:
+
+1. **JDBC**: Riceve le richieste SQL e attiva il Planner.
+2. **Planner**: Determina l'access plan (piano di accesso).
+3. **JDBC**: Apre l'access plan, che viene trasformato in un **access scan**. Quest'ultimo funge da iteratore per la query, permettendo di scorrere i risultati come se fossero una sequenza di record.
+4. **Record**: Rappresenta l'astrazione relazionale, trasformando una sequenza di blocchi (o un singolo blocco) in una sequenza di record manipolabili.
+5. **Buffer**: Fornisce un'astrazione a blocchi di un file, gestendo la permanenza dei dati in memoria principale.
+6. **File**: Rappresenta il livello più basso, dove le pagine vengono lette e scritte direttamente sul disco.
+
+Il flusso dei dati segue il percorso inverso, risalendo dai blocchi fisici del file fino ai record restituiti all'interfaccia JDBC.
+
+## Memory Management e principi di persistenza
+
+La gestione della memoria nei sistemi di basi di dati segue due principi cardine dettati dalle differenze di prestazioni tra i supporti di memorizzazione:
+
+* **Minimizzazione degli accessi al disco**: L'I/O su disco è estremamente oneroso in termini di tempo. Per mitigare questo collo di bottiglia, si utilizzano meccanismi di caching, come la CPU cache e la disk cache.
+* **Indipendenza dalla memoria virtuale del sistema operativo**: Un DBMS non deve affidarsi alla memoria virtuale del SO per due motivi critici. In primo luogo, la memoria virtuale non garantisce il recovery da crash; il SO potrebbe decidere di scrivere una pagina (swap) sul disco prima che il relativo log sia stato reso persistente, violando i protocolli di affidabilità. In secondo luogo, il SO utilizza euristiche di rimpiazzo generiche e subottime, mentre il database possiede una conoscenza approfondita dei pattern di accesso ai dati e può prendere decisioni di rimpiazzo molto più efficienti.
+
+## Il Package Buffer e la gestione del Buffer Pool
+
+Il package `simpledb.buffer` gestisce la cache dei blocchi disco in memoria centrale. La struttura delle classi principali include:
+
+* **Buffer**: Rappresenta una singola pagina caricata. Contiene riferimenti al `LogMgr` (`lm`), il numero di pin attivi (`pins`), l'identificativo della transazione che ha modificato il buffer (`txnum`) e il Log Sequence Number (`lsn`). Metodi chiave sono `contents()` per ottenere la `Page`, `pin()` e `unpin()`.
+* **BufferMgr**: Gestisce il pool di buffer. Tiene traccia dei buffer disponibili (`numAvailable`) e gestisce il tempo massimo di attesa (`MAX_TIME`). Implementa metodi per fissare un blocco in memoria (`pin(BlockId)`), liberarlo (`unpin(Buffer)`) o forzare la scrittura su disco (`flushAll(int)`).
+* **FileMgr**: Gestisce l'interazione con il file system, mantenendo informazioni sulla directory del database (`dbDirectory`), la dimensione dei blocchi (`blocksize`) e le statistiche di accesso (`stats`).
+* **Page**: Contiene il contenuto effettivo dei dati in un `ByteBuffer` (`bb`) e gestisce il set di caratteri (`CHARSET`).
+
+### Logica di pinning e rimpiazzo
+
+L'operazione di `pin(BlockId)` segue un protocollo preciso descritto nei diagrammi di sequenza:
+
+1. Il `BufferMgr` chiama `tryToPin(BlockId)`.
+2. Viene verificata l'esistenza del blocco nel pool tramite `findExistingBuffer(BlockId)`.
+3. Se il blocco non è presente (`buff == null`), il gestore sceglie un buffer non fissato tramite `chooseUnpinnedBuffer()`.
+4. Il buffer scelto viene assegnato al nuovo blocco con `assignToBlock(BlockId)`. Se il buffer era "sporco" (modificato), viene eseguito un `flush()` che attiva la scrittura fisica tramite `FileMgr.write(BlockId, Page)`.
+5. Infine, viene incrementato il contatore dei pin sul buffer.
+
+Se non ci sono buffer disponibili, il sistema entra in un ciclo di attesa (`while: buff == null && !waitingTooLong(timestamp)`) finché un altro processo non libera un buffer.
+
+## Strategie di rimpiazzo dei buffer (Buffer Replacement Strategies)
+
+Poiché il buffer manager non può prevedere con certezza quali pagine verranno richieste in futuro, deve adottare delle euristiche per scegliere quale pagina espellere quando il pool è pieno. La scelta cade obbligatoriamente sulle pagine "unwanted", ovvero quelle con numero di pin pari a zero (unpinned). Si distinguono quattro strategie generali:
+
+1. **Naïve**: Cerca e seleziona semplicemente la prima pagina libera o non fissata che incontra. È la strategia standard di SimpleDB.
+2. **FIFO (First-In-First-Out)**: Espelle la pagina che è stata caricata in memoria da più tempo, indipendentemente dalla frequenza d'uso recente.
+3. **LRU (Least Recently Used)**: Utilizza la pagina che è stata liberata (unpinned) meno di recente. Si basa sul principio di località temporale.
+4. **Clock**: Effettua una scansione circolare dei buffer. Inizia la ricerca dalla pagina successiva a quella dell'ultimo rimpiazzo, comportandosi come una versione più efficiente della strategia naïve che evita di favorire sempre i primi buffer del pool.
+
+SimpleDB implementa internamente il protocollo "no steal", il che significa che una pagina modificata da una transazione non ancora conclusa non può essere espulsa dal buffer e scritta su disco.
+
+## Record Management e organizzazione fisica
+
+Il Record Manager di SimpleDB implementa una gestione di record omogenei, non frammentati (unspanned) e a lunghezza fissa. Ogni blocco viene trattato come un array di slot.
+
+* **Record Page**: Un blocco strutturato come array di record a lunghezza fissa.
+* **Status Flag**: Ogni slot inizia con un flag (0 o 1) che indica se lo slot è vuoto o in uso. La cancellazione di un record consiste nel commutare il flag da 1 a 0.
+* **Record ID (RID)**: Composto dal numero del blocco e dal numero dello slot all'interno della pagina.
+
+### Calcolo delle posizioni fisiche
+
+Sia $RL$ la lunghezza del record (record length). Le posizioni all'interno della pagina sono calcolate come segue:
+
+* Posizione del flag di stato per lo slot $k$: $(RL+1)\*k$
+* Posizione del campo $F$ nel record allo slot $k$: $(RL+1)\*k+OFFSET(F)+1$
+
+Il `Layout` della tabella definisce gli offset dei campi e la dimensione totale dello slot. Ad esempio, per una tabella `STUDENT`, le informazioni potrebbero essere:
+
+* `SId` (int): lunghezza 4, offset 0.
+* `SName` (varchar): lunghezza 14, offset 4.
+* `GradYear` (int): lunghezza 4, offset 18.
+* `MajorId` (int): lunghezza 4, offset 22. La lunghezza totale del record $RL$ sarebbe 26.
+
+## Il Catalogo e la gestione dei Metadati
+
+I metadati sono memorizzati in tabelle di sistema chiamate tabelle di catalogo:
+
+* `tblcat(TblName, RecLength)`: Contiene l'elenco delle tabelle e la lunghezza dei relativi record.
+* `fdlcat(TblName, FldName, Type, Length, Offset)`: Descrive ogni campo di ogni tabella.
+* `viewcat(ViewName, ViewDef)`: Memorizza le definizioni delle viste.
+* `idxcat(Indexname, Tablename, Fieldname)`: Elenca gli indici definiti sui campi.
+
+Il `MetadataMgr` coordina moduli specializzati come `TableMgr`, `ViewMgr`, `StatMgr` (per le statistiche di accesso) e `IndexMgr`.
+
+## Query Management: Piani e Scansioni
+
+L'esecuzione di una query avviene in due fasi: pianificazione ed esecuzione.
+
+1. **Plan**: Rappresenta l'albero logico dell'interrogazione. Le implementazioni includono `TablePlan`, `SelectPlan`, `ProjectPlan` e `ProductPlan`. Ad esempio, una query `SELECT SName FROM STUDENT, ENROLL, SECTION WHERE ...` viene rappresentata come un albero di prodotti cartesiani sormontati da selezioni e proiezioni. Ogni oggetto `Plan` può fornire stime sul numero di blocchi acceduti e record prodotti.
+2. **Scan**: È l'interfaccia che esegue effettivamente le operazioni. Ogni nodo dell'albero del piano diventa un oggetto `Scan` (es. `SelectScan`, `TableScan`). Lo scan funziona come un iteratore tramite il metodo `next()`, che restituisce un booleano indicando se è presente una nuova ennupla.
+
+## Ottimizzazione e prestazioni
+
+Per migliorare le performance, SimpleDB include package dedicati a strutture dati avanzate:
+
+* **Index**: Gestisce indici e accesso diretto tramite `BTreeIndex` o `HashIndex`. Gli indici permettono l'uso di `IndexSelectScan` e `IndexJoinScan` per evitare scansioni complete delle tabelle.
+* **Materialize**: Gestisce la materializzazione dei risultati intermedi e l'ordinamento dei dati.
+* **Multibuffer**: Ottimizza l'uso dei buffer disponibili per operazioni pesanti come il join.
+* **Opt**: Contiene il query optimizer per la selezione del piano di accesso più efficiente.
+
+### Esecuzione di un IndexJoinScan
+
+Il diagramma di sequenza per `IndexJoinScan.next()` mostra come il sistema iteri sulla tabella di sinistra (`lhs Scan`). Per ogni record trovato a sinistra, viene resettato l'indice della tabella di destra (`idx.beforeFirst(val)`). Il sistema quindi itera sull'indice (`idx.next()`) e usa il `RID` ottenuto per muovere la scansione della tabella di destra (`rhs TableScan`) direttamente sul record corrispondente tramite `moveToRid(RID)`.
