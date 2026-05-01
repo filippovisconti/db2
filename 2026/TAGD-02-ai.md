@@ -441,7 +441,7 @@ L'uso dei lock da solo non è sufficiente a prevenire anomalie come la perdita d
 1. **Fase di acquisizione**: la transazione ottiene tutti i lock necessari senza rilasciarne alcuno.
 2. **Fase di rilascio**: la transazione rilascia i lock e non può più richiederne di nuovi.
 
-Il protocollo 2PL garantisce la conflict-serializzabilità. Per dimostrare che 2PL implica CSR, si consideri per ogni transazione l'istante in cui possiede tutti i lock ed è in procinto di rilasciare il primo. Ordinando le transazioni secondo questi istanti, si ottiene uno schedule seriale $S^{\*}$ che è conflict-equivalente allo schedule originale. Tuttavia, non tutti gli schedule CSR sono prodotti dal 2PL. Un controesempio è $r_{1}(x) w_{1}(x) r_{2}(x) w_{2}(x) r_{3}(y) w_{1}(y)$, il quale è CSR ma viola il 2PL poiché $t_{1}$ rilascia il lock su $x$ prima di acquisire quello su $y$.
+Il protocollo 2PL garantisce la conflict-serializzabilità. Per dimostrare che 2PL implica CSR, si consideri per ogni transazione l'istante in cui possiede tutti i lock ed è in procinto di rilasciare il primo. Ordinando le transazioni secondo questi istanti, si ottiene uno schedule seriale $S^{*}$ che è conflict-equivalente allo schedule originale. Tuttavia, non tutti gli schedule CSR sono prodotti dal 2PL. Un controesempio è $r_{1}(x) w_{1}(x) r_{2}(x) w_{2}(x) r_{3}(y) w_{1}(y)$, il quale è CSR ma viola il 2PL poiché $t_{1}$ rilascia il lock su $x$ prima di acquisire quello su $y$.
 
 ## Fallimenti e Locking a Due Fasi Stretto (S2PL)
 
@@ -550,6 +550,171 @@ L'efficacia di questi protocolli può essere testata simulando anomalie note.
 * **Lettura inconsistente**: In scenari dove una transazione effettua più letture intervallate da una scrittura esterna, i livelli multiversione garantiscono che la transazione veda sempre la medesima "fotografia" dei dati scattata al suo inizio.
 
 Il controllo di concorrenza "ignora la semantica delle operazioni": esso non è in grado di comprendere se una lettura influenzi logicamente una scrittura successiva (dipendenza funzionale applicativa). Pertanto, in scenari critici dove i valori letti determinano i valori da scrivere, l'uso del livello di isolamento massimo è imperativo per evitare che il sistema, agendo in modo troppo ottimista, permetta l'avvio di transazioni che non potrà portare a termine coerentemente.
+
+# Gestione delle transazioni nelle basi di dati distribuite
+
+Una base di dati distribuita si configura come un sistema in cui sia i dati che il controllo non risiedono su un unico elaboratore, ma sono ripartiti su server multipli denominati nodi. Questi nodi operano in modo coordinato tra loro per offrire una visione unitaria del sistema. La filosofia architetturale prevede che le operazioni siano, per quanto possibile, delegate ai singoli nodi competenti per la porzione di dato interessata, minimizzando lo scambio di informazioni non necessario.
+
+Uno schema logico di tale sistema mostra un dominio $D$ che racchiude diversi cilindri di memorizzazione, ognuno composto da un modulo software DBMS e da una componente fisica DATI. All'interno del dominio $D$, i nodi sono interconnessi da archi bidirezionali che rappresentano i canali di comunicazione e coordinamento. Una transazione $T$ entra nel sistema dall'esterno e viene presa in carico dall'infrastruttura distribuita che ne gestisce l'instradamento e l'esecuzione.
+
+## Architetture distribuite: Partizionamento e Replicazione
+
+L'organizzazione fisica dei dati in un ambiente distribuito segue due strategie principali, spesso combinate tra loro per massimizzare prestazioni e disponibilità:
+
+Il partizionamento, noto anche come sharding, consiste nella suddivisione logica e fisica dei dati tra i vari nodi del sistema. Ogni nodo (Machine) ospita una porzione specifica del database (Chunk). Ad esempio, si può immaginare un'architettura con sei macchine collegate a un bus di comunicazione centrale: la Machine 1 ospita i Chunk 1 e 2, la Machine 2 i Chunk 3 e 4, e la Machine 3 i Chunk 5 e 6. In questo modo, nessuna macchina possiede l'intero dataset, distribuendo il carico di memorizzazione e computazione.
+
+La replicazione prevede invece che gli stessi dati siano memorizzati su più nodi contemporaneamente. Riprendendo l'esempio precedente, la Machine 4 potrebbe ospitare nuovamente i Chunk 1 e 2, la Machine 5 i Chunk 3 e 4, e la Machine 6 i Chunk 5 e 6. Questa ridondanza assicura che, in caso di guasto di una macchina (ad esempio la Machine 1), i dati siano ancora accessibili attraverso la sua replica (Machine 4), aumentando la tolleranza ai guasti del sistema.
+
+## Tipologie di transazioni distribuite
+
+Nello scenario dei sistemi distribuiti, è fondamentale distinguere tra diverse modalità di interazione con i dati, a seconda del grado di trasparenza e coinvolgimento dei nodi:
+
+Una transazione remota si verifica quando un utente, operando in un contesto locale, interagisce con una base di dati esterna. Un esempio SQL tipico è l'aggiornamento di un ufficio situato su un server remoto:
+
+```
+UPDATE scott.dept@sales.us.americas.acme_auto.com
+SET loc = 'NEW YORK'
+WHERE deptno = 10;
+UPDATE scott.emp@sales.us.americas.acme_auto.com
+SET deptno = 11
+WHERE deptno = 10;
+COMMIT;
+```
+
+In questo caso, l'utente specifica esplicitamente l'indirizzo del nodo remoto per ogni operazione.
+
+Una transazione distribuita propriamente detta interagisce con più basi di dati contemporaneamente all'interno della medesima unità logica di lavoro. L'utente può aggiornare una tabella su un nodo remoto e una tabella sul nodo locale o su un altro nodo remoto nello stesso blocco transazionale:
+
+```
+UPDATE scott.dept@sales.us.americas.acme_auto.com
+SET loc = 'NEW YORK'
+WHERE deptno = 10;
+UPDATE scott.emp
+SET deptno = 11
+WHERE deptno = 10;
+COMMIT;
+```
+
+Spesso, la natura distribuita della transazione è resa trasparente all'utilizzatore attraverso l'uso di alias o viste globali. Il DBMS si occupa di inoltrare le operazioni ai nodi competenti senza che l'utente debba conoscere la collocazione fisica dei dati, come nel comando semplificato:
+
+```
+UPDATE scott.dept SET loc = 'NEW YORK' WHERE deptno = 10;
+UPDATE scott.emp SET deptno = 11 WHERE deptno = 10;
+COMMIT;
+```
+
+## Consistenza e Durabilità nei sistemi distribuiti
+
+In contesti caratterizzati esclusivamente dal partizionamento (sharding), ==la distribuzione dei dati non influenza direttamente le proprietà di consistenza e durabilità==, che rimangono ancorate ai meccanismi locali dei singoli nodi.
+
+La consistenza non dipende dalla distribuzione poiché i vincoli di integrità (come chiavi primarie o esterne) sono gestiti localmente. La tecnologia DBMS attuale, infatti, raramente gestisce vincoli di integrità distribuiti che coinvolgono tabelle residenti su nodi diversi, delegando la coerenza al livello applicativo o a controlli locali.
+
+La durabilità è garantita in modo indipendente da ogni nodo attraverso i meccanismi di recupero tradizionali. Ogni sistema mantiene il proprio log delle operazioni, esegue checkpoint periodici e produce dump della base di dati locale. In caso di guasto di un nodo, il ripristino dei dati avviene utilizzando esclusivamente queste risorse locali, indipendentemente dallo stato degli altri nodi della rete.
+
+Gli aspetti critici introdotti dalla distribuzione riguardano invece l'isolamento (gestito tramite il controllo della concorrenza) e l'atomicità (gestita tramite il protocollo di commit atomico).
+
+## Controllo della concorrenza globale
+
+La teoria della concorrenza stabilisce che ==la semplice serializzabilità locale su ogni singolo nodo non è una condizione sufficiente a garantire la serializzabilità globale dell'intero sistema==. Si considerino due transazioni, $t_{1}$ e $t_{2}$, operanti su due nodi A e B: 
+
+- $t_{1}:\quad r_{1A}(x)\quad w_{1A}(x)\quad r_{1B}(y)\quad w_{1B}(y)$
+- $t_{2} :\quad r_{2B}(y)\quad w_{2B}(y)\quad r_{2A}(x)\quad w_{2A}(x)$
+
+Sui singoli nodi potremmo avere le seguenti sequenze locali serializzabili: 
+
+- Nodo A: $r_{1A}(x)\quad w_{1A}(x)\quad r_{2A}(x)\quad w_{2A}(x)$ (ordine $t_{1} \to t_{2}$)
+- Nodo B: $r_{2B}(y)\quad w_{2B}(y)\quad r_{1B}(y)\quad w_{1B}(y)$ (ordine $t_{2} \to t_{1}$)
+
+==Sebbene ogni nodo sia coerente internamente, l'ordine globale è contraddittorio== (un ciclo nel grafo dei conflitti globale), violando la serializzabilità. Nella pratica, tuttavia, se i lock in scrittura vengono mantenuti fino al momento del commit globale (che coinvolge tutti i nodi contemporaneamente), la serializzabilità globale viene garantita automaticamente dall'ordinamento temporale dei commit e dalla corretta lettura delle versioni dei dati.
+
+## Tipologie di guasto nei sistemi distribuiti
+
+Un sistema distribuito deve far fronte a una gamma di malfunzionamenti più ampia rispetto a un sistema centralizzato. Oltre ai guasti locali sui singoli nodi (che seguono le dinamiche tradizionali di crash), si aggiungono le problematiche legate alla rete.
+
+La perdita di messaggi è una criticità rilevante che può lasciare i protocolli di coordinamento in uno stato di incertezza. Per mitigare il problema, ogni messaggio importante è seguito da una conferma di ricezione (ack). Tuttavia, il sistema deve gestire il caso in cui vadano perduti sia i messaggi originali che le relative conferme.
+
+Il partizionamento della rete si verifica quando la connettività tra i nodi si interrompe in modo tale da dividere il sistema in due o più sottogruppi isolati. In questa situazione, i nodi di una partizione non possono comunicare con quelli dell'altra, rendendo impossibile raggiungere un consenso globale senza protocolli specifici.
+
+## Il protocollo di Commit a Due Fasi (2PC)
+
+==L'obiettivo del protocollo di commit a due fasi è assicurare l'**atomicità distribuita**==, ovvero garantire che tutte le parti coinvolte in una transazione prendano la medesima decisione: o tutte effettuano il commit o tutte effettuano l'abort. Il protocollo funziona analogamente a un contratto legale mediato da un notaio. I partecipanti alla transazione sono definiti Resource Manager (RM), mentre il coordinatore dell'operazione è chiamato Transaction Manager (TM). Il coordinatore può essere uno dei partecipanti stessi.
+
+Il protocollo si sviluppa in due fasi distinte, preparazione e conferma, separate da un momento decisionale centrale:
+
+1. Fase di preparazione: Il coordinatore interroga i partecipanti per sapere se sono pronti e disponibili a rendere persistenti le modifiche.
+2. Decisione: Il coordinatore raccoglie i pareri. Se tutti sono favorevoli, la decisione è "global commit"; se anche un solo partecipante è contrario o non risponde, la decisione è "global abort".
+3. Fase di conferma: Il coordinatore comunica la decisione a tutti i partecipanti, i quali devono confermare l'avvenuta ricezione ed esecuzione.
+
+Tutto il processo si basa sullo scambio rapido di messaggi, sulla scrittura di record specifici nei log locali per garantire la persistenza della decisione e sull'invio di conferme (ack) per chiudere il protocollo.
+
+### Record nel Log del Coordinatore (TM)
+
+Il coordinatore deve registrare le fasi del protocollo per poter gestire eventuali riavvii post-crash:
+
+* _prepare_: Questo record contiene l'identificativo della transazione e l'elenco di tutti i partecipanti coinvolti. Serve al coordinatore per ricordare a chi ha chiesto la disponibilità al commit.
+* _global commit_ o _global abort_: Rappresenta la decisione definitiva presa dal coordinatore dopo aver consultato i partecipanti. Una volta scritto questo record, la decisione è considerata ufficiale.
+* _complete_: Indica la conclusione del protocollo, ovvero che tutti i partecipanti hanno confermato di aver ricevuto ed eseguito la decisione globale.
+
+### Record nel Log dei Partecipanti (RM)
+
+I partecipanti utilizzano i record standard di gestione transazionale (_begin, insert, delete, update, commit, abort_) integrati da un record specifico del protocollo distribuito:
+
+* _ready_: Questo record conferma che il partecipante ha verificato internamente di poter completare la transazione (le risorse sono disponibili, i vincoli di integrità sono soddisfatti, ecc.). Scrivere _ready_ nel log è un atto irrevocabile: da questo momento il partecipante perde la propria autonomia decisionale e si impegna a eseguire qualunque decisione (commit o abort) verrà presa dal coordinatore. Il record contiene i riferimenti alla transazione e al coordinatore.
+
+## Prima fase del protocollo: Preparazione
+
+L'iter inizia quando il coordinatore scrive il record di _prepare_ nel proprio log e invia simultaneamente un messaggio di _prepare_ a tutti i partecipanti, fissando un tempo massimo di attesa (timeout) per le risposte.
+
+Ogni singolo partecipante che riceve il messaggio di _prepare_ esegue un controllo interno. Se è in grado di procedere, scrive il record di _ready_ nel proprio log e trasmette al coordinatore un messaggio di _ready_. In caso contrario, ovvero se non può garantire il commit, può inviare un messaggio di _not-ready_ oppure non inviare nulla, lasciando scadere il timeout del coordinatore.
+
+Il coordinatore rimane in ascolto delle risposte fino alla scadenza del timeout. Se riceve messaggi di _ready_ da tutti i partecipanti, scrive il record di _global commit_ nel proprio log. Se manca anche una sola risposta o se riceve un messaggio negativo, scrive un record di _global abort_.
+
+## Seconda fase del protocollo: Conferma
+
+Una volta presa la decisione globale, il coordinatore la trasmette a tutti i partecipanti che avevano risposto _ready_ e a quelli da cui non era giunta risposta, fissando un secondo timeout per la ricezione degli ack.
+
+Ogni partecipante, alla ricezione della decisione globale, scrive il record corrispondente (_commit_ o _abort_) nel proprio log locale e invia un messaggio di _ack_ al coordinatore. Contestualmente, implementa fisicamente la decisione con le opportune scritture sui dati e il rilascio dei lock.
+
+Il coordinatore attende i messaggi di _ack_. Se allo scadere del timeout manca qualche conferma da parte dei partecipanti che erano in stato di _ready_, il coordinatore provvede a reinviare la decisione a quei nodi specifici. Solo quando tutti i partecipanti hanno confermato la ricezione, il coordinatore scrive il record di _complete_ nel log, chiudendo definitivamente la transazione distribuita.
+
+## Diagramma temporale del Commit a due fasi
+
+Il flusso del protocollo 2PC può essere visualizzato su due assi temporali paralleli: uno per il Transaction Manager (TM) e uno per il Resource Manager (RM).
+
+1. Il TM invia un messaggio di _prepare_ (linea tratteggiata discendente verso RM).
+2. L'RM, ricevuto il messaggio, scrive il record di _Ready_ (freccia verso l'alto sull'asse RM) e invia il messaggio di _ready_ (linea tratteggiata ascendente verso TM).
+3. Il TM riceve i messaggi, prende la _Global Decision_ (freccia verso l'alto sull'asse TM) e invia il messaggio di _decision_ (linea discendente).
+4. L'RM riceve la decisione, esegue la _Local Decision_ (freccia verso l'alto sull'asse RM) e invia l' _ack_ (linea ascendente).
+5. Il TM riceve gli ack e scrive il record di _Complete_ (freccia verso l'alto sull'asse TM).
+
+In questo schema, si definisce finestra di incertezza l'intervallo temporale che intercorre tra il momento in cui l'RM scrive il record di _ready_ e il momento in cui riceve il messaggio di decisione globale dal TM.
+
+## Incertezza e procedure di ripristino
+
+Lo stato di _ready_ è critico per un partecipante poiché comporta la perdita totale della propria autonomia decisionale. Durante la finestra di incertezza, il partecipante è obbligato ad attendere la decisione del coordinatore. Se il coordinatore fallisce in questo lasso di tempo, il partecipante rimane bloccato in uno stato incerto; poiché i lock sulle risorse sono solitamente mantenuti fino al commit o all'abort, i dati coinvolti rimangono inaccessibili ad altre transazioni, causando potenziali colli di bottiglia.
+
+### Recovery del partecipante
+
+In fase di ripristino post-crash, un partecipante analizza l'ultimo record nel log per ogni transazione attiva:
+
+* Se l'ultimo record è un _commit_, si esegue il _redo_ delle azioni per garantirne la durabilità.
+* Se l'ultimo record è un'azione generica o un _abort_, la transazione deve essere annullata tramite l'operazione di _undo_.
+* Se l'ultimo record è un _ready_, il partecipante è in uno stato di incertezza. Non potendo decidere autonomamente, deve contattare il coordinatore (o attendere che sia il coordinatore a ricontattarlo) per conoscere l'esito della transazione.
+
+### Recovery del coordinatore
+
+Il coordinatore segue una logica speculare analizzando il proprio log:
+
+* Se l'ultimo record è _complete_, non è necessaria alcuna azione poiché il protocollo si era concluso correttamente.
+* Se l'ultimo record è una decisione (_global commit_ o _abort_), la scelta è definitiva e immutabile. Tuttavia, non essendoci il _complete_, non è certo che tutti i partecipanti siano stati informati, quindi il coordinatore deve ripetere la seconda fase del protocollo inviando nuovamente la decisione.
+* Se l'ultimo record è un _prepare_, potrebbero esserci partecipanti in attesa della decisione. La soluzione più conservativa e semplice è decidere per un _global abort_. In alternativa, il coordinatore potrebbe tentare di ripetere la prima fase interrogando nuovamente i partecipanti.
+
+## Gestione dei guasti e dei messaggi perduti
+
+Il protocollo 2PC gestisce in modo uniforme crash, perdite di messaggi e partizionamenti della rete applicando la regola del fallimento della fase in assenza di conferme.
+
+Se la mancanza di risposta avviene durante la prima fase (preparazione), il coordinatore solitamente decide di abortire la transazione distribuita per precauzione. Se la mancanza di risposta (mancato ack) avviene durante la seconda fase (conferma), il coordinatore è obbligato a ripetere la trasmissione della decisione finché non riceve conferma, poiché la decisione è già stata presa e registrata nel log tra la prima e la seconda fase, e non può più essere modificata.
+
 
 ---------------------------------------------------------
 \newpage
