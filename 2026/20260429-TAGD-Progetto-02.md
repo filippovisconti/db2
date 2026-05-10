@@ -7,7 +7,7 @@ template:
 ---
 # Introduzione
 
-L'obiettivo di questo progetto  è analizzare le dinamiche del controllo di concorrenza e i livelli di isolamento delle transazioni in un DBMS reale. 
+L'obiettivo di questo progetto è analizzare le dinamiche del controllo di concorrenza e i livelli di isolamento delle transazioni in un DBMS reale. 
 Per garantire l'isolamento e la riproducibilità dell'ambiente di test, l'infrastruttura è stata implementata tramite container.
 Come DBMS è stato scelto _PostgreSQL_ , in esecuzione tramite Docker, e per la simulazione delle transazioni concorrenti un programma scritto in Python, su un Apple MacBook Pro 16 con processore Apple M1 Pro e 16 GB di RAM.
 
@@ -49,7 +49,7 @@ Alzando il livello a `REPEATABLE READ`, i log evidenziano un comportamento diffe
 [LOST_UPDATE] CONCLUSIONE: Tx2 ABORTITA per Serialization Failure.
 ```
 
-## Scenario 2: Non-Repeatable Read 
+## Scenario 2: Lettura Inconsistente 
 In questo test, una transazione legge lo stesso record due volte a distanza di tempo, mentre una seconda transazione lo modifica ed effettua il commit nell'intervallo tra le due letture.
 
 Nel livello di default `READ COMMITTED`, i risultati mostrano che la prima transazione legge due valori differenti. Lo snapshot viene infatti aggiornato all'inizio di ogni singola query.
@@ -73,7 +73,7 @@ Impostando il livello `REPEATABLE READ`, la seconda query della prima transazion
 [NON_REPEATABLE_READ] T1 count dopo:  2
 [NON_REPEATABLE_READ] Non-Repeatable Read PREVENUTO! (I valori coincidono)
 ```
-## Scenario 3: Phantom Read 
+## Scenario 3: Inserimento Fantasma 
 In questo test, la transazione T1 esegue un'operazione di aggregazione. Nel frattempo, T2 inserisce un nuovo impiegato che soddisfa tale condizione.
 
 In `READ COMMITTED`, T1 fa una query e trova 2 impiegati. T2 inserisce un nuovo impiegato ('Bianchi') e fa commit. Quando T1 riesegue la query, vede 3 impiegati. È apparso un record "fantasma".
@@ -86,7 +86,7 @@ In `READ COMMITTED`, T1 fa una query e trova 2 impiegati. T2 inserisce un nuovo 
 [PHANTOM_READ] Phantom Read AVVENUTO!
 ```
 
-In teoria, il livello `REPEATABLE READ` tollera le Phantom Read. Tuttavia, i log dell'esperimento dimostrano che in Postgres questa anomalia non si verifica. Infatti T1 interroga uno snapshot creato all'inizio della transazione che rimane immutabile, isolandola dai nuovi inserimenti di T2. Di fatto, in Postgres, il livello `REPEATABLE READ` offre una protezione superiore rispetto allo standard.
+In teoria, il livello `REPEATABLE READ` consente gli inserimenti fantasma. Tuttavia, i log dell'esperimento dimostrano che in Postgres questa anomalia non si verifica. Infatti T1 interroga uno snapshot creato all'inizio della transazione che rimane immutabile, isolandola dai nuovi inserimenti di T2. Di fatto, in Postgres, il livello `REPEATABLE READ` offre una protezione superiore rispetto allo standard.
 
 ```text
 [PHANTOM_READ] --- INIZIO TEST PHANTOM READ (REPEATABLE READ) ---
@@ -112,7 +112,7 @@ In `REPEATABLE READ`, entrambe le transazioni leggono `count=2`. Ognuna procede 
 [WRITE_SKEW] Tx2 ha letto post commit count = 4
 [WRITE_SKEW] CONCLUSIONE: Tx2 COMMIT completato con successo.
 ```
-Impostando l'isolamento a livello `SERIALIZABLE`, il sistema garantisce un'esecuzione serializzabile, ma con un approccio peculiare. Anziché utilizzare lock bloccanti fin dalla fase di lettura, Postgres applica il Serializable Snapshot Isolation. Monitora le dipendenze in lettura e scrittura e, al rilevamento di un ciclo di dipendenze (entrambe hanno preso decisioni di scrittura basandosi su dati che l'altra stava modificando) che violerebbe la serializzabilità, lascia procedere la prima transazione ed esegue l'aborto forzato della seconda al momento del commit, restituendo un'eccezione di _Serialization Failure_.
+Impostando l'isolamento a livello `SERIALIZABLE`, il sistema garantisce un'esecuzione serializzabile e monitora le dipendenze in lettura e scrittura e, al rilevamento di un ciclo di dipendenze (entrambe hanno preso decisioni di scrittura basandosi su dati che l'altra stava modificando) che violerebbe la serializzabilità, lascia procedere la prima transazione ed esegue l'aborto forzato della seconda al momento del commit, restituendo un'eccezione di _Serialization Failure_.
 
 ```text
 [WRITE_SKEW] --- INIZIO TEST WRITE SKEW (Livello: SERIALIZABLE) ---
@@ -128,7 +128,7 @@ Impostando l'isolamento a livello `SERIALIZABLE`, il sistema garantisce un'esecu
 ## Scenario 5: Deadlock 
 Questo test simula un'attesa circolare: T1 blocca il record "Rossi" e attende "Bruni", mentre T2 blocca "Bruni" e attende "Rossi".
 
-L'evidenza mostra in azione il meccanismo di Deadlock Detection del DBMS. Invece di rimanere bloccate indefinitamente, dopo un breve periodo di rilevamento, Postgres risolve automaticamente lo stallo circolare imponendo l'aborto di una delle due transazioni per sbloccare la situazione e far concludere con successo l'altra.
+L'output mostra in azione il meccanismo di Deadlock Detection del DBMS. Invece di rimanere bloccate indefinitamente, Postgres risolve automaticamente lo stallo circolare imponendo l'aborto di una delle due transazioni per sbloccare la situazione e far concludere con successo l'altra.
 
 ```text
 [DEADLOCK] --- INIZIO TEST DEADLOCK ---
@@ -141,12 +141,12 @@ L'evidenza mostra in azione il meccanismo di Deadlock Detection del DBMS. Invece
 ```
 
 ## Scenario 6: Dirty Read
-Questo scenario è stato introdotto specificamente per dimostrare lo scostamento tra lo standard SQL e Postgres. T1 effettua un aggiornamento di un record senza fare commit (procedendo poi con un rollback), mentre T2 tenta di leggere il record modificato.
+Questo scenario è stato introdotto per verificare lo scostamento tra lo standard SQL e Postgres. T1 effettua un aggiornamento di un record senza fare commit (procedendo poi con un rollback), mentre T2 tenta di leggere il record modificato.
 
-Pur richiedendo esplicitamente a livello di driver il livello `READ UNCOMMITTED`, l'evidenza dei test dimostra che il _Dirty Read_ non si verifica mai. T2 legge esclusivamente l'ultimo dato regolarmente confermato. Il DBMS analizzato converte infatti silenziosamente il livello in `READ COMMITTED`, escludendo a priori la possibilità di letture "sporche".
+Pur richiedendo esplicitamente a livello di driver il livello `READ UNCOMMITTED`, l'evidenza dei test dimostra che la lettura sporca non si verifica mai. T2 legge esclusivamente l'ultimo dato regolarmente confermato. Il DBMS analizzato converte infatti silenziosamente il livello in `READ COMMITTED`, escludendo a priori la possibilità di letture "sporche".
 
 ```text
-[DIRTY_READ] --- INIZIO TEST DIRTY READ (FORZANDO READ_UNCOMMITTED) ---
+[DIRTY_READ] --- INIZIO TEST DIRTY READ (RICHIEDENDO READ_UNCOMMITTED) ---
 [DIRTY_READ] T1 ha modificato il conteggio a 999 ma NON HA FATTO COMMIT.
 [DIRTY_READ] T2 ha letto il conteggio: 1
 [DIRTY_READ] DIRTY READ PREVENUTO! (Postgres infatti forza READ COMMITTED)
@@ -154,4 +154,4 @@ Pur richiedendo esplicitamente a livello di driver il livello `READ UNCOMMITTED`
 ```
 
 # Conclusioni
-Gli esperimenti condotti hanno permesso di verificare empiricamente i concetti di controllo della concorrenza. La sperimentazione su PostgreSQL ha evidenziato come l'utilizzo del modello MVCC allontani parzialmente il DBMS dalle definizioni classiche basate sul Two-Phase Locking (2PL). L'approccio di Postgres garantisce una prevenzione stringente delle anomalie (come i Phantom Read già in `REPEATABLE READ`), scaricando però a livello applicativo la necessità di intercettare e gestire tramite ulteriori tentativi le transazioni interrotte forzatamente (errori di deadlock e serialization failure) per garantire la corretta serializzabilità.
+Gli esperimenti condotti hanno permesso di verificare empiricamente i concetti di controllo della concorrenza. La sperimentazione su PostgreSQL ha evidenziato come l'utilizzo del modello MVCC allontani parzialmente il DBMS dalle definizioni classiche. L'approccio di Postgres garantisce una prevenzione stringente delle anomalie (come i Phantom Read già in `REPEATABLE READ`), scaricando però a livello applicativo la necessità di intercettare e gestire tramite ulteriori tentativi le transazioni interrotte forzatamente per garantire la corretta serializzabilità.

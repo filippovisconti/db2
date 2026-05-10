@@ -95,13 +95,13 @@ Senza il differimento, l'inserimento in $r1$ fallirebbe immediatamente perché l
 
 Le proprietà ACID sono garantite da moduli specifici del sistema:
 
-* **Atomicità e Durabilità**: sono affidate al Gestore dell'affidabilità (Reliability manager).
+* **Atomicità e Durabilità**: sono affidate al Gestore dell'affidabilità.
 * **Isolamento**: è garantito dal Gestore della concorrenza.
 * **Consistenza**: è presidiata dal Gestore dell'integrità a tempo di esecuzione, con il supporto preventivo del compilatore del DDL (Data Definition Language).
 
 # Gestione dell'affidabilità: Atomicità e Durabilità
 
-L'architettura di un sistema per la gestione dei dati si articola in una gerarchia di moduli specializzati. Al vertice si trova il **Gestore degli accessi e delle interrogazioni**, che coordina il flusso delle operazioni. Al suo interno, il **Gestore di Interrogazioni e aggiornamenti** riceve le richieste e le trasmette al **Gestore dei metodi d’accesso**. Quest'ultimo interagisce con il **Gestore del buffer**, che funge da intermediario per il **Gestore della memoria secondaria**, il quale opera direttamente sulla **Memoria secondaria** fisica (disco). Parallelamente a questa struttura di accesso, si colloca il **Gestore delle transazioni**, incaricato di garantire le proprietà fondamentali del sistema. Esso supervisiona il **Gestore della concorrenza**, che si interfaccia con i metodi d'accesso, e il **Gestore della affidabilità**, che monitora sia il buffer che la memoria secondaria per assicurare che ogni transazione sia atomica e i suoi effetti siano persistenti.
+Il **Gestore della concorrenza** si interfaccia con i metodi d'accesso, e il **Gestore della affidabilità** monitora sia il buffer che la memoria secondaria per assicurare che ogni transazione sia atomica e i suoi effetti siano persistenti.
 
 ## Persistenza delle memorie e tipologie di guasto
 
@@ -113,10 +113,11 @@ La classificazione dei malfunzionamenti distingue tra tre categorie principali:
 * **Guasti "hard"**: ==colpiscono== direttamente i dispositivi di ==memoria secondaria==, causandone la perdita parziale o totale. In questo caso, l'integrità è garantita solo dalla memoria stabile. Il ripristino richiede un **cold restart** (ripresa a freddo).
 * **Catastrofe**: indica la ==distruzione della memoria stabile==. Per fini progettuali, si assume solitamente che tale evento **non** possa verificarsi o che sia gestito tramite procedure di disaster recovery esterne al sistema ordinario.
 
-## Il modello "fail-stop" e il Gestore dell'affidabilità
+## Il modello "fail-stop" 
 
 Il comportamento del sistema durante un guasto è descritto dal **modello "fail-stop"**, rappresentabile come un grafo di stati. Nello stato **Normal**, il sistema esegue le operazioni ordinarie. In caso di errore (**Fail**), il sistema transita nello stato **Stop**. Dal momento dello stop, l'operazione di **Boot** porta il sistema nello stato di **Recovery**. Se il processo di ripristino ha successo (**Recovery completato**), si torna allo stato **Normal**. Qualora si verifichi un ulteriore guasto durante la fase di recovery, il sistema torna nuovamente nello stato **Stop**.
 
+## Il Gestore dell'affidabilità
 Il **Gestore dell'affidabilità** ha il compito primario di assicurare le proprietà di **atomicità** (tutto o niente) e **durabilità** (persistenza degli effetti). Esso gestisce l'esecuzione dei comandi transazionali fondamentali: l'inizio della transazione ($B$, begin o start transaction), il consolidamento dei risultati ($C$, commit work) e l'annullamento delle operazioni ($A$, abort o rollback work). Inoltre, governa le operazioni di ripristino post-guasto attraverso le procedure di warm e cold restart.
 
 ## Strumenti di ridondanza: Log e Dump
@@ -125,8 +126,6 @@ Per garantire il ripristino, il gestore utilizza informazioni ridondanti memoriz
 
 * **Log**: è un ==archivio permanente in memoria stabile che registra sequenzialmente tutte le operazioni svolte==. Funge da traccia per poter tornare indietro o ricostruire le azioni.
 * **Dump**: è una ==copia di riserva completa della base di dati==, anch'essa conservata in memoria stabile. Rappresenta un "punto di partenza" statico da cui avviare la ricostruzione in caso di guasti hard.
-
-L'architettura del controllore dell'affidabilità vede il modulo interfacciarsi con il **Gestore dei metodi d’accesso** (ricevendo segnali di fix e unfix) e con il **Gestore delle transazioni** (ricevendo begin, commit e abort). Il Gestore dell'affidabilità impartisce comandi al **Gestore del buffer**, richiedendo il fissaggio, lo sblocco o la scrittura forzata (**force**) delle pagine della base di dati e dei record del log. Il Buffer Manager, infine, comunica con il **Gestore della memoria secondaria** tramite operazioni di lettura e scrittura fisica.
 
 ## Modello di riferimento e operazioni
 
@@ -163,8 +162,8 @@ Per manipolare gli stati, si definiscono due meccanismi fondamentali:
 
 La corretta gestione del log segue il principio secondo cui la nota scritta deve precedere l'azione fisica:
 
-1. **Write-Ahead-Log (WAL)**: è necessario scrivere il $BS$ sul log in memoria stabile prima che il valore corrispondente venga scritto fisicamente nella base di dati. Ciò garantisce la possibilità di "disfare" (undo) le azioni.
-2. **Commit-Precedenza**: è necessario scrivere l' $AS$ sul log in memoria stabile prima di effettuare il commit della transazione. Ciò garantisce la possibilità di "rifare" (redo) le azioni.
+1. **Write-Ahead-Log (WAL)**: è necessario ==scrivere il $BS$ sul log in memoria stabile prima che il valore corrispondente venga scritto fisicamente== nella base di dati. Ciò garantisce la possibilità di "disfare" (undo) le azioni.
+2. **Commit-Precedenza**: è necessario ==scrivere l' $AS$ sul log in memoria stabile prima di effettuare il commit== della transazione. Ciò garantisce la possibilità di "rifare" (redo) le azioni.
 
 Esistono tre modalità di coordinamento tra le scritture nel log e nella base di dati:
 
@@ -345,10 +344,7 @@ Le anomalie generate dall'interazione tra letture ($R$) e scritture ($W$) posson
 
 # Teoria e pratica del controllo della concorrenza nelle basi di dati
 
-Il controllo della concorrenza è una componente essenziale dei moderni sistemi di gestione di basi di dati, necessaria per garantire che l'esecuzione simultanea di più transazioni non comprometta l'integrità delle informazioni. Senza un'adeguata regolamentazione, l'intercalamento delle operazioni di lettura e scrittura può generare diverse tipologie di anomalie. Le principali categorie di malfunzionamento includono la perdita di aggiornamento, classificata come un conflitto di tipo Scrittura-Scrittura ($W-W$), e la lettura sporca, che si verifica in scenari di Lettura-Scrittura ($R-W$) o $W-W$ quando una transazione subisce un abort dopo aver già influenzato altre operazioni. Altre criticità sono rappresentate dalle letture inconsistenti ($R-W$), dall'aggiornamento fantasma ($R-W$) e dall'inserimento fantasma, dove il conflitto $R-W$ coinvolge un dato "nuovo" precedentemente non esistente.
-
-Un esempio concreto delle esigenze di concorrenza riguarda una catena di supermercati che gestisce una base di dati dei clienti dotati di tessera fedeltà. La relazione $Clienti$ possiede gli attributi $Codice$, $Negozio$ e $Punti$. Per finalità analitiche, il sistema deve calcolare per ogni punto vendita il numero totale dei clienti, la somma complessiva dei punti accumulati e la relativa media. L'interrogazione SQL corrispondente è: `SELECT Negozio, count(*) as numClienti, sum(Punti) as totalePunti, sum(Punti)/ count(*) as mediaPunti FROM Clienti GROUP BY Negozio`. In questo contesto, l'insorgere di anomalie durante l'esecuzione di aggiornamenti simultanei (come l'aggiunta di nuovi punti o l'iscrizione di nuovi clienti) potrebbe produrre statistiche distorte e non veritiere, sollevando la questione se tali errori siano accettabili per l'organizzazione.
-
+Il controllo della concorrenza è una componente essenziale dei moderni sistemi di gestione di basi di dati, necessaria per garantire che l'esecuzione simultanea di più transazioni non comprometta l'integrità delle informazioni. Senza un'adeguata regolamentazione, l'intercalamento delle operazioni di lettura e scrittura può generare diverse tipologie di anomalie.
 ## Livelli di isolamento in SQL:1999 e JDBC
 
 Per bilanciare la necessità di consistenza con le prestazioni del sistema, lo standard SQL:1999 e l'interfaccia JDBC permettono di definire il comportamento transazionale attraverso i livelli di isolamento. Una transazione può essere dichiarata `read-only`, precludendo ogni operazione di scrittura. Per le transazioni che operano in lettura e scrittura, è possibile selezionare uno dei quattro livelli standardizzati, ognuno dei quali offre una protezione progressiva contro le anomalie:
@@ -360,25 +356,15 @@ Per bilanciare la necessità di consistenza con le prestazioni del sistema, lo s
 
 È fondamentale osservare che, sebbene la perdita di aggiornamento dovrebbe teoricamente essere sempre evitata, nella pratica i DBMS richiedono l'uso del livello `serializable` per proteggere con certezza le transazioni che effettuano scritture. La scelta di livelli di isolamento inferiori è giustificata dal fatto che la gestione rigorosa della concorrenza è computazionalmente costosa; se l'applicazione può tollerare una precisione approssimativa (specialmente nelle letture), si può rinunciare a parte dell'isolamento per guadagnare in efficienza.
 
-### Applicazione pratica dei livelli di isolamento: Caso Studio Supermarket
-
-L'applicazione dei livelli di isolamento può essere analizzata attraverso cinque scenari operativi basati sull'interrogazione statistica dei punti fedeltà precedentemente descritta. In presenza di inserimenti e modifiche che generano temporaneamente valori errati (poi corretti prima del commit), la scelta del livello dipende dall'obiettivo:
-
-1. Se l'operazione avviene durante l'inserimento di pochi nuovi clienti con la finalità di ottenere tendenze complessive approssimative, è sufficiente il livello **Read Committed**.
-2. Se l'operazione avviene durante la ridenominazione dei criteri per tutti i clienti per acquisire informazioni indicative, il livello più adatto è **Repeatable Read**.
-3. In un momento di assenza totale di aggiornamenti, con l'obiettivo di premiare i primi tre negozi, si può utilizzare il livello minimo **Read Uncommitted**.
-4. Per individuare con certezza i primi tre negozi durante l'inserimento di nuovi clienti, è necessario il livello **Serializable** per evitare l'interferenza dei "fantasmi".
-5. Per lo stesso obiettivo di premiazione durante la modifica dei punteggi di tutti i clienti, si richiede il livello **Repeatable Read**.
-
 ## Architettura del Gestore della Concorrenza
 
 L'implementazione fisica del controllo della concorrenza avviene attraverso un modulo dedicato denominato **Gestore della concorrenza**. All'interno dell'architettura del DBMS, questo componente si colloca tra il **Gestore dei metodi d'accesso** e il **Gestore della memoria secondaria**. Il flusso operativo prevede che il Gestore delle transazioni invii segnali di $begin, commit, abort$. Contemporaneamente, il Gestore dei metodi d'accesso invia richieste di $read$ e $write$. Il Gestore della concorrenza riceve queste richieste e, consultando una **Tabella dei lock**, decide se autorizzarle, rifiutarle o riordinarle prima di inoltrarle al Gestore della memoria secondaria per l'accesso effettivo alla base di dati. Questo coordinamento avviene ignorando, in questa fase di astrazione, le problematiche relative ai buffer e all'affidabilità.
 
 ## Teoria del controllo di concorrenza: Schedule e Serializzabilità
 
-Dal punto di vista teorico, una transazione è modellata come una sequenza di operazioni di lettura ($r$) e scrittura ($w$), identificata da un numero univoco e conclusa da un commit ($c$) o un abort ($a$). Ad esempio: $t_{1} : r_{1}(x) r_{1}(y) w_{1}(x) w_{1}(y) c_{1}$. Uno **schedule** $S$ è una sequenza di operazioni di input/output provenienti da diverse transazioni. Per semplicità analitica, inizialmente si considerano solo le transazioni che effettuano il commit, ignorando quelle che vanno in abort; questa astrazione è definita **commit-proiezione** dello schedule reale.
+Dal punto di vista teorico, ==una transazione è modellata come una sequenza di operazioni di lettura ($r$) e scrittura ($w$), identificata da un numero univoco e conclusa da un commit ($c$) o un abort ($a$).== Ad esempio: $t_{1} : r_{1}(x) r_{1}(y) w_{1}(x) w_{1}(y) c_{1}$. Uno **schedule** $S$ è una sequenza di operazioni di input/output provenienti da diverse transazioni. Per semplicità analitica, ==inizialmente si considerano solo le transazioni che effettuano il commit, ignorando quelle che vanno in abort; questa astrazione è definita **commit-proiezione** dello schedule reale==.
 
-L'obiettivo principale è evitare le anomalie. Uno **schedule seriale** è una sequenza in cui le transazioni sono eseguite integralmente una dopo l'altra, senza alcuna interposizione (es. $S_{2} : r_{0}(x) r_{0}(y) w_{0}(x) r_{1}(y) r_{1}(x) w_{1}(y) r_{2}(x) r_{2}(y) r_{2}(z) w_{2}(z)$). Gli schedule seriali sono intrinsecamente privi di anomalie. Uno schedule è definito **serializzabile** se produce lo stesso risultato di uno schedule seriale operante sulle medesime transazioni. Lo **Scheduler** ha il compito di ammettere solo schedule serializzabili, individuando classi di schedule la cui serializzabilità sia verificabile rapidamente.
+L'obiettivo principale è evitare le anomalie. Uno **schedule seriale** è una sequenza in cui le transazioni sono eseguite integralmente una dopo l'altra, senza alcuna interposizione (es. $S_{2} : r_{0}(x) r_{0}(y) w_{0}(x) r_{1}(y) r_{1}(x) w_{1}(y) r_{2}(x) r_{2}(y) r_{2}(z) w_{2}(z)$). ==Gli schedule seriali sono intrinsecamente privi di anomalie==. Uno schedule è definito **serializzabile** se produce lo stesso risultato di uno schedule seriale operante sulle medesime transazioni. Lo **Scheduler** ha il compito di ammettere **solo** schedule serializzabili, individuando classi di schedule la cui serializzabilità sia verificabile rapidamente.
 
 ### View-Serializzabilità
 
@@ -387,13 +373,13 @@ La view-serializzabilità si basa sul concetto di equivalenza di "visione" dei d
 * **Scrittura finale**: un'operazione $w_{i}(x)$ è una scrittura finale in uno schedule $S$ se è l'ultima operazione di scrittura eseguita sull'oggetto $x$ in quello schedule. Determina lo stato finale della base di dati.
 * **Relazione Legge-da**: un'operazione $r_{i}(x)$ legge-da $w_{j}(x)$ in uno schedule $S$ se $w_{j}(x)$ precede $r_{i}(x)$ e non vi sono altre scritture $w_{k}(x)$ interposte tra le due. Determina l'influenza che una transazione ha sulle altre.
 
-Due schedule $S_{i}$ e $S_{j}$ sono **view-equivalenti** ($S_{i} \approx_{V} S_{j}$) se presentano le stesse scritture finali e la medesima relazione legge-da. Uno schedule è **view-serializzabile** (VSR) se esiste uno schedule seriale view-equivalente ad esso. Ad esempio, dati gli schedule: $S_{2} : r_{2}(x) w_{0}(x) r_{1}(x) w_{2}(x) w_{2}(z)$ $S_{3} : w_{0}(x) r_{2}(x) r_{1}(x) w_{2}(x) w_{2}(z)$ I due non sono view-equivalenti perché in $S_{2}$ la lettura $r_{1}(x)$ legge da $w_{0}(x)$, mentre in $S_{3}$ sia $r_{2}(x)$ che $r_{1}(x)$ leggono da $w_{0}(x)$. Se esiste uno schedule seriale $S_{4} : w_{0}(x) r_{1}(x) r_{2}(x) w_{2}(x) w_{2}(z)$ che è view-equivalente a $S_{3}$, allora $S_{3}$ è view-serializzabile.
+==Due schedule $S_{i}$ e $S_{j}$ sono **view-equivalenti** ($S_{i} \approx_{V} S_{j}$) se presentano le stesse scritture finali e la medesima relazione legge-da==. Uno schedule è **view-serializzabile** (VSR) se esiste uno schedule seriale view-equivalente ad esso. Ad esempio, dati gli schedule: $S_{2} : r_{2}(x) w_{0}(x) r_{1}(x) w_{2}(x) w_{2}(z)$ $S_{3} : w_{0}(x) r_{2}(x) r_{1}(x) w_{2}(x) w_{2}(z)$ I due non sono view-equivalenti perché in $S_{2}$ la lettura $r_{1}(x)$ legge da $w_{0}(x)$, mentre in $S_{3}$ sia $r_{2}(x)$ che $r_{1}(x)$ leggono da $w_{0}(x)$. Se esiste uno schedule seriale $S_{4} : w_{0}(x) r_{1}(x) r_{2}(x) w_{2}(x) w_{2}(z)$ che è view-equivalente a $S_{3}$, allora $S_{3}$ è view-serializzabile.
 
 La verifica della view-serializzabilità è tuttavia un problema **NP-completo**, il che la rende inutilizzabile nella pratica ingegneristica dei DBMS.
 
 ## Conflict-Serializzabilità
 
-Poiché trovare tutti gli schedule serializzabili è troppo costoso, si ricerca un sottoinsieme più facile da verificare. La **conflict-serializzabilità** (CSR) si basa sui conflitti tra operazioni. Un'azione $a_{i}$ è in **conflitto** con $a_{j}$ se appartengono a transazioni diverse ($i \neq j$), operano sul medesimo oggetto e almeno una delle due è una scrittura. Si distinguono conflitti **read-write** ($rw$ o $wr$) e conflitti **write-write** ($ww$).
+Poiché trovare tutti gli schedule serializzabili è troppo costoso, si ricerca un sottoinsieme più facile da verificare. La **conflict-serializzabilità** (CSR) si basa sui conflitti tra operazioni. ==Un'azione $a_{i}$ è in **conflitto** con $a_{j}$ se appartengono a transazioni diverse ($i \neq j$), operano sul medesimo oggetto e almeno una delle due è una scrittura==. Si distinguono conflitti **read-write** ($rw$ o $wr$) e conflitti **write-write** ($ww$).
 
 Due schedule $S_{i}$ e $S_{j}$ sono **conflict-equivalenti** ($S_{i} \approx_{C} S_{j}$) se ogni coppia di operazioni in conflitto mantiene il medesimo ordine in entrambi gli schedule. Uno schedule è conflict-serializzabile se esiste uno schedule seriale conflict-equivalente ad esso.
 
@@ -411,14 +397,78 @@ L'organizzazione strutturale degli schedule può essere visualizzata come un dia
 
 ## Verifica della Conflict-Serializzabilità tramite Grafi
 
-Lo strumento principale per verificare se uno schedule appartiene alla classe CSR è il **grafo dei conflitti**. Si tratta di un grafo orientato costruito secondo le seguenti regole:
+Lo strumento principale per verificare se uno schedule appartiene alla classe CSR è il **==grafo dei conflitti==**. Si tratta di un grafo orientato costruito secondo le seguenti regole:
 
-* Viene creato un nodo per ogni transazione $t_{i}$ presente nello schedule.
-* Viene tracciato un arco orientato da $t_{i}$ a $t_{j}$ se sussiste almeno un conflitto tra un'azione $a_{i}$ e un'azione $a_{j}$ tale che $a_{i}$ precede cronologicamente $a_{j}$ nello schedule.
+* ==Viene creato un nodo per ogni transazione $t_{i}$ presente nello schedule.==
+* ==Viene tracciato un arco orientato da $t_{i}$ a $t_{j}$ se sussiste almeno un conflitto tra un'azione $a_{i}$ e un'azione $a_{j}$ tale che $a_{i}$ precede cronologicamente $a_{j}$ nello schedule.==
 
-Il teorema cardine della verifica stabilisce che uno schedule $S$ è in CSR se e solo se il suo grafo dei conflitti è **aciclico**. La dimostrazione si basa su un lemma il quale afferma che due schedule conflict-equivalenti possiedono necessariamente il medesimo grafo dei conflitti. Se $S$ è in CSR, esso è conflict-equivalente a uno schedule seriale $S_{0}$. Poiché il grafo di uno schedule seriale è intrinsecamente aciclico (i conflitti tra azioni $a_{i}$ e $a_{j}$ possono avvenire solo se $i < j$, rendendo impossibile la chiusura di un ciclo che richiederebbe un arco $i > j$), allora anche il grafo di $S$ deve essere aciclico. Viceversa, se il grafo è aciclico, è possibile determinare un **ordinamento topologico** dei nodi (una numerazione tale che esistano solo archi $(i, j)$ con $i < j$). Lo schedule seriale ottenuto ordinando le transazioni secondo tale sequenza sarà equivalente a $S$, provando la sua appartenenza a CSR.
+Il teorema cardine della verifica stabilisce che ==uno schedule $S$ è in CSR se e solo se il suo grafo dei conflitti è **aciclico**.== La dimostrazione si basa su un lemma il quale afferma che due schedule conflict-equivalenti possiedono necessariamente il medesimo grafo dei conflitti. Se $S$ è in CSR, esso è conflict-equivalente a uno schedule seriale $S_{0}$. Poiché il grafo di uno schedule seriale è intrinsecamente aciclico (i conflitti tra azioni $a_{i}$ e $a_{j}$ possono avvenire solo se $i < j$, rendendo impossibile la chiusura di un ciclo che richiederebbe un arco $i > j$), allora anche il grafo di $S$ deve essere aciclico. Viceversa, se il grafo è aciclico, è possibile determinare un **ordinamento topologico** dei nodi (una numerazione tale che esistano solo archi $(i, j)$ con $i < j$). Lo schedule seriale ottenuto ordinando le transazioni secondo tale sequenza sarà equivalente a $S$, provando la sua appartenenza a CSR.
 
 Si consideri l'esempio di un grafo con sei transazioni dove gli archi sono: $4 \rightarrow 1$, $4 \rightarrow 2$, $1 \rightarrow 2$, $1 \rightarrow 5$, $5 \rightarrow 2$, $5 \rightarrow 3$, $5 \rightarrow 6$ e $2 \rightarrow 3$. Un possibile ordinamento topologico per questo grafo è la sequenza $4, 1, 5, 3, 2, 6$. Questo ordinamento garantisce che per ogni conflitto $(i, j)$ individuato nel grafo, la transazione $i$ preceda sempre la transazione $j$ nello schedule seriale equivalente.
+
+## Esempio di Grafo dei Conflitti
+
+\begin{figure}[htbp!]
+    \centering
+    % Inizio Blocco Grafo Aciclico
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \begin{tikzpicture}[
+            >=Stealth,
+            node distance=2.5cm and 2cm,
+            txn/.style={circle, draw=black, thick, minimum size=1.2cm, fill=blue!5, font=\Large\bfseries},
+            conflict/.style={->, thick, draw=blue!60!black}
+        ]
+            % Nodi
+            \node[txn] (T1) {$t_1$};
+            \node[txn] (T2) [below right=of T1] {$t_2$};
+            \node[txn] (T3) [above right=of T2] {$t_3$};
+            % Archi con etichette dei conflitti
+            \draw[conflict] (T1) -- node[below left, font=\footnotesize, text=black] {$W_1(x) \to R_2(x)$} (T2);
+            \draw[conflict] (T2) -- node[below right, font=\footnotesize, text=black] {$W_2(y) \to W_3(y)$} (T3);
+            \draw[conflict] (T1) -- node[above, font=\footnotesize, text=black] {$R_1(z) \to W_3(z)$} (T3);
+        \end{tikzpicture}
+        \vspace{0.5em}
+        \textbf{Figura A: Grafo Aciclico (CSR)}
+    \end{minipage}\hfill
+    % Inizio Blocco Grafo Ciclico
+    \begin{minipage}{0.48\textwidth}
+        \centering
+        \begin{tikzpicture}[
+            >=Stealth,
+            node distance=3cm,
+            txn/.style={circle, draw=black, thick, minimum size=1.2cm, fill=red!5, font=\Large\bfseries},
+            conflict/.style={->, thick, draw=red!70!black}
+        ]
+            % Nodi
+            \node[txn] (T1) {$t_1$};
+            \node[txn] (T2) [right=of T1] {$t_2$};
+            % Archi che formano il ciclo
+            \draw[conflict] (T1) to[bend left=35] node[above, font=\footnotesize, text=black] {$R_1(x) \to W_2(x)$} (T2);
+            \draw[conflict] (T2) to[bend left=35] node[below, font=\footnotesize, text=black] {$W_2(x) \to W_1(x)$} (T1);
+        \end{tikzpicture}
+        \vspace{0.5em}
+		
+        \textbf{Figura B: Grafo Ciclico (no CSR)}
+    \end{minipage}
+    \flushleft
+\end{figure}
+	
+L'illustrazione sopra mostra come verificare se uno schedule è *Conflict-Serializzabile* (CSR) utilizzando il grafo delle precedenze (o dei conflitti). Un principio fondamentale stabilisce che uno schedule è corretto (serializzabile) se e solo se il suo grafo è privo di cicli.
+
+*   **Figura A (Grafo Aciclico):** Consideriamo lo schedule $S_A: W_1(x) R_1(z) R_2(x) W_2(y) W_3(z) W_3(y)$.
+    Il grafo viene costruito analizzando le operazioni in conflitto temporale:
+    *   L'operazione $W_1(x)$ precede $R_2(x)$, creando un conflitto Scrittura-Lettura (W-R) e definendo l'arco $t_1 \to t_2$.
+    *   L'operazione $W_2(y)$ precede $W_3(y)$, creando un conflitto Scrittura-Scrittura (W-W) sulla stessa risorsa, aggiungendo l'arco $t_2 \to t_3$.
+    *   L'operazione $R_1(z)$ precede $W_3(z)$, creando un conflitto Lettura-Scrittura (R-W) e tracciando l'arco $t_1 \to t_3$.
+
+Il risultato è un grafo **aciclico** (DAG). Da questo grafo è possibile estrarre un *ordinamento topologico* lineare valido. Lo scheduler può quindi confermare che $S_A$ è equivalente allo schedule seriale $t_1 \to t_2 \to t_3$. Lo schedule rientra nella classe CSR e le transazioni possono procedere al commit.
+
+*   **Figura B (Grafo con Ciclo):** Consideriamo lo schedule problematico $S_B: R_1(x) W_2(x) W_1(x)$. In questo caso, il grafo evidenzia un'anomalia:
+    *   $R_1(x)$ precede $W_2(x)$, creando un conflitto Lettura-Scrittura (R-W) e generando l'arco $t_1 \to t_2$.
+    *   Successivamente, $t_1$ esegue $W_1(x)$ dopo che $t_2$ ha eseguito $W_2(x)$. Questo crea un conflitto Scrittura-Scrittura (W-W) in direzione opposta, generando l'arco $t_2 \to t_1$.
+
+Si forma così un **ciclo** ($t_1 \rightleftarrows t_2$). Questo indica un'impossibilità logica: due transazioni non possono precedersi a vicenda in un ordine seriale. L'algoritmo (ad esempio tramite visita DFS) rileverà il ciclo; lo scheduler stabilirà quindi che $S_B$ non è CSR ed eseguirà un abort per preservare l'isolamento e la consistenza del database.
 
 ## Meccanismi di Locking
 
@@ -445,7 +495,7 @@ Il protocollo 2PL garantisce la conflict-serializzabilità. Per dimostrare che 2
 
 ## Fallimenti e Locking a Due Fasi Stretto (S2PL)
 
-Rimuovendo l'ipotesi di "commit-proiezione", si deve considerare il rischio che le transazioni falliscano, introducendo la possibilità di **letture sporche**. Se $t_{i}$ legge un dato modificato da $t_{k}$ e $t_{k}$ abortisce dopo che $t_{i}$ ha già comunicato all'esterno o effettuato il commit, si verifica un'incoerenza insanabile. Per evitare ciò, si adotta il **Locking a due fasi stretto (S2PL)**, che impone una condizione addizionale: tutti i lock acquisiti da una transazione devono essere mantenuti fino al momento del commit o dell'abort.
+Rimuovendo l'ipotesi di "commit-proiezione", si deve considerare il rischio che le transazioni falliscano, introducendo la possibilità di **letture sporche**. Se $t_{i}$ legge un dato modificato da $t_{k}$ e $t_{k}$ abortisce dopo che $t_{i}$ ha già comunicato all'esterno o effettuato il commit, si verifica un'incoerenza insanabile. Per evitare ciò, si adotta il **Locking a due fasi stretto (S2PL)**, che impone una condizione addizionale: ==tutti i lock acquisiti da una transazione devono essere mantenuti fino al momento del commit o dell'abort==.
 
 Nella gestione pratica dei lock, ogni richiesta è associata a un **timeout**. Se un lock non può essere concesso immediatamente, la transazione viene posta in attesa. Se la risorsa non si libera entro il tempo massimo stabilito, la transazione viene abortita e, eventualmente, rilanciata dall'applicazione.
 
@@ -520,11 +570,11 @@ Fondamentalmente, il **2PL è "pessimista"**: esso preferisce porre le transazio
 
 ## Controllo di concorrenza multiversione (MVCC)
 
-Il controllo multiversione nasce dall'osservazione che uccidere una transazione solo perché tenta di leggere un dato "vecchio" è spesso inefficiente. L'idea di base è che ogni operazione di scrittura generi una nuova copia (versione) dell'oggetto associata al proprio $WTM$. In questo modo, un oggetto $x$ non ha un unico valore, ma una serie di versioni con timestamp di scrittura diversi.
+Il controllo multiversione nasce dall'osservazione che uccidere una transazione solo perché tenta di leggere un dato "vecchio" è spesso inefficiente. L'idea di base è che ==ogni operazione di scrittura generi una nuova copia (versione) dell'oggetto associata al proprio $WTM$.== In questo modo, un oggetto $x$ non ha un unico valore, ma una serie di versioni con timestamp di scrittura diversi.
 
 ### Meccanismo di lettura e scrittura MVCC
 
-* **Lettura $r_t(x)$**: è sempre accettata. Il sistema seleziona la versione dell'oggetto $x_k$ più adatta alla transazione. Se $t$ è maggiore di tutti i timestamp delle copie disponibili, si sceglie l'ultima versione. Altrimenti, si seleziona la versione $k$ tale che $WTM_k(x) < t < WTM_{k+1}(x)$.
+* ==**Lettura $r_t(x)$**: è sempre accettata==. Il sistema seleziona la versione dell'oggetto $x_k$ più adatta alla transazione. Se $t$ è maggiore di tutti i timestamp delle copie disponibili, si sceglie l'ultima versione. Altrimenti, si seleziona la versione $k$ tale che $WTM_k(x) < t < WTM_{k+1}(x)$.
 * **Scrittura $w_t(x)$**: se $t < RTM(x)$, la richiesta è rifiutata poiché una transazione più giovane ha già letto un valore che logicamente avrebbe dovuto essere prodotto dopo la scrittura di $t$. In caso contrario, viene generata una nuova versione di $x$ con $WTM(x) = t$.
 
 Le versioni obsolete vengono rimosse fisicamente dal sistema (operazione di _garbage collection_) solo quando è certo che nessuna transazione attiva sia più interessata a leggerle.
@@ -538,9 +588,12 @@ I DBMS commerciali adottano approcci ibridi:
 
 In Postgres, il comportamento varia in base al livello di isolamento impostato:
 
-1. **Read Committed (Default)**: le letture operano sui dati andati in commit al momento dell'inizio della singola istruzione `SELECT`. Le scritture utilizzano il $2PL$ stretto, acquisendo e mantenendo i lock fino al commit.
-2. **Repeatable Read**: le letture multiversione operano sui dati in commit all'inizio della transazione (identificato dalla prima operazione di lettura/scrittura, non dal `BEGIN`). Per le scritture, vige il $2PL$ stretto con una condizione di "rispetto delle versioni": una transazione $T$ non può modificare dati che siano stati alterati da un'altra transazione $T'$ dopo l'avvio di $T$.
-3. **Serializable**: simile al livello precedente, ma aggiunge la verifica di cicli di conflitti lettura/scrittura (dipendenze r/w). Questa funzionalità, introdotta dalla versione 9.1, è implementata con una variante di lock di predicato che traccia l'ordine delle operazioni senza bloccare, verificando l'eventuale presenza di cicli solo al momento del commit.
+1. **Read Committed (Default)**: le letture operano sui dati andati in commit al momento dell'inizio della singola istruzione `SELECT`.
+	1. Le scritture utilizzano il $2PL$ stretto, acquisendo e mantenendo i lock fino al commit.
+2. **Repeatable Read**: le letture multiversione operano sui dati in commit all'inizio della transazione (identificato dalla prima operazione di lettura/scrittura, non dal `BEGIN`).
+	1. Per le scritture, vige il $2PL$ stretto con una condizione di "rispetto delle versioni": una transazione $T$ non può modificare dati che siano stati alterati da un'altra transazione $T'$ dopo l'avvio di $T$.
+3. **Serializable**: simile al livello precedente, ma aggiunge la verifica di cicli di conflitti lettura/scrittura (dipendenze r/w).
+	1. Questa funzionalità, introdotta dalla versione 9.1, è implementata con una variante di lock di predicato che traccia l'ordine delle operazioni senza bloccare, verificando l'eventuale presenza di cicli solo al momento del commit.
 
 ## Analisi delle anomalie e sperimentazione pratica
 
@@ -715,6 +768,125 @@ Il protocollo 2PC gestisce in modo uniforme crash, perdite di messaggi e partizi
 
 Se la mancanza di risposta avviene durante la prima fase (preparazione), il coordinatore solitamente decide di abortire la transazione distribuita per precauzione. Se la mancanza di risposta (mancato ack) avviene durante la seconda fase (conferma), il coordinatore è obbligato a ripetere la trasmissione della decisione finché non riceve conferma, poiché la decisione è già stata presa e registrata nel log tra la prima e la seconda fase, e non può più essere modificata.
 
+# Consistenza nelle basi di dati distribuite
+
+I moderni sistemi di gestione di basi di dati (DBMS) devono affrontare la necessità di scalare per supportare i requisiti prestazionali e di carico delle applicazioni contemporanee. Esistono due direttrici principali per l'espansione: la scalabilità verticale (scale up) e la scalabilità orizzontale (scale out). La scalabilità verticale prevede il potenziamento del singolo server attraverso l'allocazione di risorse hardware superiori, quali CPU più potenti, una maggiore quantità di memoria primaria e dischi di capacità elevata; tuttavia, questa strategia incontra un limite fisico insormontabile nella quantità massima di risorse che possono essere concentrate in una singola macchina. La scalabilità orizzontale prevede invece l'aumento del numero di server fisici impiegati, utilizzando tecniche di partizionamento (sharding) e replicazione. In questo scenario, il limite principale è rappresentato dal sovraccarico di comunicazione (communication overhead) tra i nodi, ma non è l'unico vincolo.
+
+## Partizionamento e Replicazione
+
+L'architettura distribuita si fonda su due concetti chiave che possono essere combinati tra loro:
+
+* **Partizionamento**: consiste nella suddivisione logica e fisica dei dati tra i vari nodi del sistema.
+* **Replicazione**: prevede la memorizzazione degli stessi dati su più nodi differenti.
+
+Uno schema esemplificativo vede una configurazione con sei macchine interconnesse. In un sistema puramente partizionato, la Machine 1 ospita i Chunk 1 e 2, la Machine 2 ospita i Chunk 3 e 4, e la Machine 3 ospita i Chunk 5 e 6. Quando si introduce la replicazione, i medesimi dati vengono duplicati su altre macchine: la Machine 4 replica il contenuto della Machine 1 (Chunk 1 e 2), la Machine 5 replica la Machine 2 (Chunk 3 e 4), e la Machine 6 replica la Machine 3 (Chunk 5 e 6).
+
+Mantenere la consistenza tra le repliche di una base di dati distribuita rappresenta una sfida complessa. Si consideri un esempio con due repliche del database dove il saldo iniziale è $Bal=1000$. Vengono generati due eventi concorrenti: l'Evento 1 aggiunge 1000 € e l'Evento 2 aggiunge un interesse del 5%. Se sulla prima replica viene eseguito l'ordine (1, 2), il saldo finale sarà $(1000+1000) \times 1.05 = 2100$. Se sulla seconda replica viene eseguito l'ordine (2, 1), il saldo finale sarà $(1000 \times 1.05) + 1000 = 2050$. Questa divergenza evidenzia la difficoltà nel garantire la coerenza tra le copie.
+
+## Sistemi distribuiti: il trade-off tra Safety e Liveness
+
+In un'elaborazione distribuita operante in un contesto non affidabile (unreliable), è impossibile garantire simultaneamente le proprietà di safety e liveness.
+
+* **Safety**: descrive il principio per cui "non succede niente di male". La consistenza, intesa come coerenza tra le copie, è una proprietà di safety: tutte le risposte fornite ai client devono essere corrette secondo una determinata nozione di correttezza.
+* **Liveness**: descrive il principio per cui "prima o poi succede qualcosa di buono". La disponibilità (availability) è una proprietà di liveness: ogni richiesta effettuata da un client deve ricevere, prima o poi, una risposta.
+* **Unreliability**: indica la presenza di fallimenti intrinseci, quali partizionamenti della rete (network partitioning), crash dei nodi (crash failures) o comportamenti malevoli dei nodi (Byzantine failures).
+
+## Il Teorema CAP
+
+Il teorema CAP (introdotto da Eric Brewer) formalizza il trade-off tra tre proprietà in un sistema distribuito composto da un insieme di nodi ${G_{1}, \dots, G_{n}}$ distribuiti geograficamente, dove i client eseguono operazioni di lettura e scrittura:
+
+1. **Consistenza (Atomic consistency)**: definita dalla semantica complessiva del servizio. Le sequenze di operazioni devono produrre lo stesso effetto che avrebbero se fossero eseguite su un singolo server centralizzato. Il client deve percepire il servizio come atomico e le risposte devono essere coerenti.
+2. **Disponibilità (Availability)**: ogni richiesta riceve una risposta (eventual response). Una risposta eccessivamente lenta può essere considerata errata o equivalente a un fault.
+3. **Tolleranza al partizionamento (Network partitioning)**: descrive la suddivisione della rete in gruppi che non possono comunicare tra loro. Poiché i messaggi possono essere ritardati o persi, l'inaffidabilità della comunicazione è un dato di fatto del sistema.
+
+L'enunciato del teorema CAP stabilisce che in un network soggetto a partizionamento, è impossibile implementare una memoria condivisa read/write atomica che fornisca risposta a ogni richiesta. La dimostrazione intuitiva prevede che se due nodi sono separati da un partizionamento, un aggiornamento su uno non può essere propagato all'altro. Di conseguenza, l'altro nodo potrà o non rispondere (violando la disponibilità) o rispondere con un dato obsoleto (violando la consistenza).
+
+### Implicazioni pratiche e compromessi
+
+Nella costruzione di sistemi reali si adottano diversi compromessi:
+
+* **Best effort availability**: se la consistenza è un vincolo inderogabile, la disponibilità passa in secondo piano. Un esempio è il Google Lock Service (Chubby), che supporta GFS e Big Table. Fornisce consistenza forte tramite un design primary-backup; se i server sono partizionati, il servizio diventa non disponibile.
+* **Best effort consistency**: se la disponibilità e la velocità di risposta sono prioritarie, si tollerano inconsistenze temporanee. Esempi includono il caching di contenuti web (Akamai) e i sistemi basati su eventual consistency.
+
+### Consistenza basata su Quorum
+
+Un meccanismo per bilanciare consistenza e disponibilità è l'uso dei quorum:
+
+* $N_{W}$: numero minimo di nodi che devono confermare una scrittura.
+* $N_{R}$: numero minimo di nodi che devono confermare una lettura.
+* La condizione $N_{R} + N_{W} > n$ garantisce letture fortemente consistenti (strongly consistent reads), poiché l'intersezione tra l'insieme di lettura e quello di scrittura non è mai vuota.
+* La condizione $N_{W} > n/2$ serve a evitare conflitti scrittura-scrittura, garantendo l'isolamento.
+
+I trade-off possono essere definiti dinamicamente:
+
+* **Soglie di "out-of-date"-ness**: si tollerano inconsistenze temporanee per limitare la non disponibilità solo a partizionamenti molto lunghi.
+* **Stato dell'esecuzione**: in una prenotazione aerea, si può tollerare l'inconsistenza quando ci sono molti posti disponibili, ma la consistenza deve diventare stretta quando i posti rimasti sono pochi.
+* **Caratteristiche dei dati**: l'inventario di un e-commerce può essere disallineato, ma il carrello degli acquisti deve essere coerente.
+* **Tipo di operazione**: le letture possono tollerare inconsistenze (es. navigazione catalogo), mentre le scritture no (es. acquisto prodotto).
+* **Utente o Gerarchia**: gli utenti possono essere partizionati geograficamente con consistenza maggiore entro la propria partizione. Scendendo in un partizionamento gerarchico, si possono fornire livelli di consistenza più elevati.
+
+## Il problema del Consenso
+
+Il consenso riguarda la capacità di un insieme di nodi ${G_{1}, \dots, G_{n}}$, ciascuno con un valore iniziale $v_{i}$, di accordarsi su un unico valore di output. Le proprietà richieste sono:
+
+* **Agreement**: tutti i nodi devono restituire lo stesso valore (safety).
+* **Validity**: il valore di output deve essere stato proposto come input da almeno un nodo (safety).
+* **Termination**: ogni nodo deve prima o poi restituire un valore (liveness).
+
+Gli algoritmi di consenso assicurano la safety ritornando sempre risultati corretti e garantiscono la liveness se la maggioranza dei nodi è attiva, anche in presenza di ritardi, partizionamenti o riordinamento di messaggi.
+
+### Macchine a Stati Replicate (Replicated State Machine)
+
+Gli algoritmi di consenso si basano sul concetto di macchina a stati replicata. Ogni nodo possiede una copia identica di una macchina a stati e opera su un log replicato (replicated log), ovvero una sequenza di istruzioni. Poiché le macchine sono deterministiche, se applicano gli stessi comandi nello stesso ordine dal medesimo log, raggiungeranno lo stesso stato. L'algoritmo di consenso ha la responsabilità di mantenere allineati i log tra i nodi attraverso un modulo di consenso che riceve i comandi dai client e comunica con gli altri nodi per far convergere i log.
+
+## L'algoritmo RAFT
+
+RAFT è un algoritmo di consenso introdotto da Leslie Lamport nel 1989 (come versione semplificata e didattica di Paxos) per essere più comprensibile e adatto a sistemi reali. Il problema del consenso in RAFT viene decomposto in tre sottoproblemi:
+
+1. **Elezione del leader**: scelta di un nuovo leader al fallimento del precedente.
+2. **Replicazione del log**: il leader accetta le entry dai client e le replica nel cluster.
+3. **Safety**: garanzia che se un nodo applica un'operazione, nessun altro nodo applicherà un comando diverso per la stessa posizione.
+
+### Stati e tempo in RAFT
+
+Un cluster RAFT solitamente contiene 5 server per tollerare 2 fallimenti simultanei. Ogni server può trovarsi in uno di tre stati:
+
+* **Leader**: gestisce le richieste dei client. Se un client contatta un follower, viene reindirizzato al leader.
+* **Follower**: stato passivo; risponde alle richieste dei leader o dei candidate.
+* **Candidate**: stato temporaneo utilizzato durante le elezioni.
+
+Il tempo è suddiviso in "terms" di lunghezza arbitraria, ognuno dei quali inizia con un'elezione. I term agiscono come un orologio logico (logical clock) per individuare informazioni obsolete. Se un server scopre di avere un progressivo di term inferiore a un altro, si aggiorna; se un leader o un candidate scopre un term superiore, torna immediatamente allo stato di follower. Le richieste riferite a term superati vengono rigettate.
+
+### Comunicazione e Invarianti
+
+La comunicazione avviene tramite due tipi di RPC (Remote Procedure Call):
+
+* **RequestVOTE**: avviata dai candidati durante le elezioni.
+* **AppendEntries**: avviata dai leader per replicare le entry del log e fungere da heartbeat.
+
+RAFT si fonda su rigide invarianti per mantenere l'allineamento:
+
+* **Election safety**: al massimo un leader per ogni term.
+* **Leader append-only**: il leader non sovrascrive né cancella mai le proprie entry.
+* **Log matching**: entry con stesso indice e stesso term implicano comandi identici e log identici nelle posizioni precedenti.
+* **Leader completeness**: le entry committate in un term sono presenti nei leader di tutti i term successivi.
+* **State machine safety**: nessuna macchina a stati applicherà mai comandi diversi per lo stesso indice.
+
+### Processo di Elezione e Replicazione
+
+Un server inizia come follower. Se non riceve heartbeat entro un "election timeout", diventa candidate, incrementa il term, vota per se stesso e invia RequestVote. Vince chi ottiene la maggioranza dei voti nel cluster. Per evitare split vote infiniti (dove nessuno ottiene la maggioranza), si usa un "randomized election timeout".
+
+Una volta eletto, il leader riceve comandi dai client e li aggiunge al proprio log. Invia AppendEntries in parallelo. Una entry è considerata "committed" quando è replicata sulla maggioranza dei server. Il commit di una entry implica il commit automatico di tutte le entry precedenti nel log. Il leader include l'indice committato più alto in ogni AppendEntries per informare i follower.
+
+In caso di inconsistenze (disallineamento dei log dovuto a crash), il leader forza i follower a uniformarsi al suo log. Individua l'ultima entry coincidente tramite un consistency check, cancella le entry successive nel follower e invia le proprie. Il leader mantiene un `nextIndex` per ogni follower per gestire questo riallineamento.
+
+### Restrizioni e Safety
+
+Per garantire la safety, RAFT impone una restrizione all'elezione: un votante nega il voto a un candidato se il log del candidato è meno aggiornato del proprio. L'aggiornamento si confronta controllando prima il numero del term e poi l'indice dell'ultima entry. Inoltre, un leader non effettua mai il commit di una entry di un term precedente contando solo le repliche; il commit avviene solo per le entry del term corrente, trascinando con sé per log matching le entry precedenti.
+
+### Disponibilità e Timing
+
+Mentre la safety è indipendente dal tempo, la disponibilità dipende dal rispetto della relazione: $broadcastTime \ll electionTimeout \ll MTBF$ (Mean Time Between Failures). Se i messaggi sono troppo lenti rispetto ai crash, il sistema non riuscirà a eleggere un leader stabile e non farà progressi.
 
 ---------------------------------------------------------
 \newpage
