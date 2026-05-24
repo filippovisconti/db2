@@ -1,0 +1,95 @@
+\documentclass[a4paper,12pt]{book}
+
+% ==========================================
+% PREAMBOLO E PACCHETTI
+% ==========================================
+
+% --- Codifica e Lingua ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+
+% --- Matematica e Simboli ---
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+
+% --- Grafica e TikZ (Necessari per i grafi dei conflitti e architetture) ---
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric, positioning, arrows.meta, calc, decorations.pathreplacing}
+
+% --- Layout e Formattazione ---
+\usepackage[top=3cm, bottom=3cm, left=3.5cm, right=2.5cm]{geometry}
+\usepackage{fancyhdr}
+\usepackage{microtype}
+\usepackage{titlesec}
+
+% --- Tabelle e Codice ---
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{verbatim}
+
+% --- Link Interattivi ---
+\usepackage[colorlinks=true, linkcolor=blue!70!black, urlcolor=blue, citecolor=red!70!black]{hyperref}
+
+% ==========================================
+% STILI E TEOREMI
+% ==========================================
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE,RO]{\thepage}
+\fancyhead[LO]{\slshape\nouppercase{\rightmark}}
+\fancyhead[RE]{\slshape\nouppercase{\leftmark}}
+
+\theoremstyle{definition}
+\newtheorem{definizione}{Definizione}[chapter]
+\newtheorem{teorema}{Teorema}[chapter]
+\newtheorem{lemma}[teorema]{Lemma}
+\newtheorem{corollario}[teorema]{Corollario}
+\newtheorem{esempio}{Esempio}[chapter]
+\newtheorem{osservazione}{Osservazione}[chapter]
+
+% ==========================================
+% METADATI
+% ==========================================
+
+\title{
+    \vspace{2cm}
+    \Huge \textbf{Architettura e Gestione delle Basi di Dati} \\
+    \vspace{0.5cm}
+    \Large \textit{Appunti - Teoria della Concorrenza e Sistemi Distribuiti}
+    \vspace{2cm}
+}
+\author{\textbf{Tutor Accademico}}
+\date{\today}
+
+% ==========================================
+% INIZIO DOCUMENTO
+% ==========================================
+
+\begin{document}
+
+\frontmatter
+\maketitle
+
+\chapter*{Prefazione}
+Questo documento raccoglie gli appunti avanzati strutturati in logica Zettelkasten riguardanti i sistemi transazionali, la teoria della concorrenza, la serializzabilità (CSR e VSR), i protocolli di locking (2PL e S2PL), il controllo tramite Timestamp e Multiversione (MVCC), fino ad arrivare alla gestione delle transazioni distribuite e al protocollo Two-Phase Commit (2PC).
+
+\tableofcontents
+
+\mainmatter
+
+
+\input{01.tex}
+\input{02.tex}
+\input{03.tex}
+\input{04.tex}
+\input{05.tex}
+\input{06.tex}
+\input{07.tex}
+\input{08.tex}
+
+\end{document}

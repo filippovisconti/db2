@@ -1,0 +1,183 @@
+% Pacchetti richiesti nel preambolo del main.tex per la corretta compilazione di questo capitolo:
+% \usepackage{amsmath}
+% \usepackage{amssymb}
+% \usepackage{tikz}
+% \usetikzlibrary{shapes.geometric, positioning, arrows.meta}
+
+\chapter{Controllo di Concorrenza Avanzato: Timestamp e Multiversione}
+
+\section{Il Controllo di Concorrenza basato su Timestamp (TS)}
+
+Il protocollo 2PL, pur essendo granitico e dominante nella prima era dei database relazionali, soffre dell'intrinseco limite del pessimismo e della propensione fisiologica al blocco tramite dead-lock. L'ingegneria informatica ha pertanto elaborato una "tecnica alternativa al 2PL", fondata su un paradigma radicalmente opposto: il controllo di concorrenza basato su \textbf{Timestamp (TS)}.
+
+Il Timestamp è formalmente definito come un identificatore univoco e monotonicamente crescente che stabilisce e "definisce un ordinamento totale sugli eventi di un sistema" distribuito o centralizzato. L'intuizione logica alla base di questo approccio è associare il concetto di isolamento non all'acquisizione di lucchetti spaziali, bensì a una collocazione temporale pura: ad ogni singola transazione, nel momento in cui essa nasce, viene "stampigliato" un timestamp che ne "rappresenta l'istante di inizio". (Questa intuizione ricorda, con un parallelismo cinematografico, le logiche della timeline affrontate in Ritorno al Futuro e il "Paradosso del nonno", in cui gli eventi passati non possono essere alterati retroattivamente senza generare un'incongruenza o distruggere il presente).
+
+Lo scheduler governato dal protocollo TS non mette in coda nessuno a priori, ma funge da guardiano temporale: uno schedule intrecciato viene "accettato" e condotto a termine se, e solo se, esso "riflette (nei conflitti R-W, W-R, W-W) l'ordinamento seriale delle transazioni indotto dai timestamp" nativi. In altre parole, se la transazione più vecchia accede a un dato che una transazione più giovane ha già furtivamente sovrascritto, il sistema rileva un anacronismo (il paradosso).
+Essendo basato sull'ordine dei conflitti, la teoria certifica che "ogni schedule accettato da TS è anche CSR (Conflict-Serializzabile)".
+
+\subsection{Meccanica ed Etichettatura degli Oggetti}
+Per poter rilevare gli anacronismi, il protocollo TS non necessita di mantenere un grafo centrale, ma delega la memoria del tempo ai dati stessi. Per ogni singolo oggetto $x$ della base di dati, il sistema alloca e aggiorna continuamente due variabili di stato interne (metadata):
+\begin{itemize}
+    \item $RTM(x)$ (\textit{Read Timestamp}): Rappresenta il timestamp della transazione \textit{più "giovane"} (quella col valore numerico di timestamp più alto, arrivata per ultima) che ha coronato con successo l'operazione di lettura del dato $x$.
+    \item $WTM(x)$ (\textit{Write Timestamp}): Rappresenta il timestamp della transazione \textit{più "giovane"} che ha effettivamente alterato e scritto il dato $x$.
+\end{itemize}
+
+Lo scheduler riceve a raffica richieste di lettura $r_t(x)$ e scrittura $w_t(x)$, dove l'indice $t$ indica il timestamp nativo della transazione richiedente.
+
+\paragraph{Gestione delle Letture $r_t(x)$:}
+Quando la transazione con timestamp $t$ desidera leggere l'oggetto $x$:
+\begin{itemize}
+    \item Se si verifica la disuguaglianza $t < WTM(x)$: Significa che la transazione $t$ (vecchia) sta cercando di leggere un dato che è già stato rimpiazzato o sovrascritto nel "futuro" da una transazione più giovane. La lettura di un dato fantasma comprometterebbe la serialità. La richiesta viene brutalmente "respinta e la transazione viene uccisa" (abort immediato).
+    \item Altrimenti ($t \geq WTM(x)$): La richiesta è cronologicamente valida. Viene "accolta". Il sistema aggiorna lo storico dell'oggetto ponendo $RTM(x)$ "uguale al maggiore fra $RTM(x)$ e $t$".
+\end{itemize}
+
+\paragraph{Gestione delle Scritture $w_t(x)$:}
+Quando la transazione con timestamp $t$ desidera scrivere sull'oggetto $x$:
+\begin{itemize}
+    \item Se $t < WTM(x)$ oppure $t < RTM(x)$: Significa che la transazione $t$ sta tentando di sovrascrivere un dato che una transazione più giovane ha già scritto in modo definitivo (Late Write, scatenando W-W) oppure che una transazione più giovane ha già letto assorbendone il valore logico per i propri calcoli (scatenando un anacronismo in lettura R-W). In entrambi i frangenti la richiesta è fatale e viene "respinta e la transazione viene uccisa".
+    \item Altrimenti: La richiesta temporale è lecita, "viene accolta" e la metavariabile $WTM(x)$ è posta insindacabilmente "uguale a $t$".
+\end{itemize}
+
+Per funzionare in purezza nei sistemi reali e aggirare le vulnerabilità del fallimento di transazioni non completate ("senza ipotesi di commit-proiezione"), le primitive di scrittura del Timestamp dovrebbero essere protette "fino al commit" delegando la stesura materiale alla memoria a un modulo simile al "2PL sulle scritture". Tuttavia, per sfuggire all'ingombro del lock, "in pratica si usa però una variante".
+
+\subsection{La Variante "Thomas Write Rule" (Scritture Ignorate)}
+Analizzando il rigetto per le scritture, si intuisce un'ottimizzazione.
+Se una scrittura $t$ giunge in netto ritardo fisiologico rispetto al record $WTM(x)$ (ossia $t < WTM(x)$), ma magicamente e fortunatamente nessuno nel futuro ha ancora letto o fatto affidamento su quel dato superato (ovvero non sussiste $t < RTM(x)$), la vecchia scrittura morta potrebbe "semplicemente essere ignorata" senza scatenare il massacro dell'abort.
+La regola di ammissione viene dolcemente modificata in:
+\begin{itemize}
+    \item Se $t < RTM(x)$: La "richiesta è respinta e la transazione viene uccisa" (L'anacronismo di lettura resta letale).
+    \item Se $t < WTM(x)$ e $t \geq RTM(x)$: La "richiesta viene ignorata". La variabile $x$ manterrà il valore più aggiornato scritto dal futuro, giacché "nessuno ha avuto necessità di leggere quel dato" intermedio e la transazione $t$ può proseguire illesa.
+    \item Altrimenti: La "richiesta viene accolta e $WTM(x)$ è posto uguale a $t$".
+\end{itemize}
+
+\subsection{Esempio di Esecuzione TS}
+Si tracci l'evoluzione per un oggetto $x$ avente stato iniziale $RTM(x)=7$ e $WTM(x)=4$.
+\begin{enumerate}
+    \item Arriva $r_6(x)$: $6 > 4 (WTM)$. Esito: "ok". $RTM$ resta $7$ ($\max(7,6)$).
+    \item Arriva $r_8(x)$: $8 > 4$. Esito: "ok". Il nuovo valore diviene $RTM(x)=8$.
+    \item Arriva $r_9(x)$: $9 > 4$. Esito: "ok". Il nuovo valore diviene $RTM(x)=9$.
+    \item Arriva $w_8(x)$: Il controllo della scrittura valuta $t=8$. Si ha $8 < 9 (RTM)$. Esito catastrofico: "no, $t_8$ uccisa" (ha tentato di alterare il passato già letto da 9).
+    \item Arriva $w_{12}(x)$: $12 > 9 (RTM)$ e $12 > 4 (WTM)$. Esito: "ok". Il nuovo valore fissa $WTM(x)=12$.
+    \item Arriva $r_{10}(x)$: $10 < 12 (WTM)$. Esito fatale: "no, $t_{10}$ uccisa".
+    \item Arriva $w_{11}(x)$: Controllo: $11 > 9 (RTM)$, ma $11 < 12 (WTM)$. Esito biforcato: secondo il metodo TS "base" la transazione $t_{11}$ viene inesorabilmente "uccisa"; se applicassimo la "variante" (Thomas), la scrittura verrebbe puramente e silenziosamente "ignorata" salvando la vita a $t_{11}$.
+\end{enumerate}
+
+\section{Confronto di Architettura: 2PL vs TS}
+
+Dal punto di vista insiemistico e logico, le due supreme architetture di schedulazione (2PL e TS) sono dichiaratamente "incomparabili". Nessuna delle due fagocita interamente l'altra, poiché coprono porzioni intersecate ma disgiunte dello spazio dei conflitti.
+L'incomparabilità è dimostrata dalla casistica:
+\begin{itemize}
+    \item Esistono "Schedule in TS ma non in 2PL": es. $r_1(x) w_1(x) r_2(x) w_2(x) r_0(y) w_1(y)$ (TS la accetta per successione temporale intatta, ma 2PL la rigetta per il tentativo illegittimo di $w_1(y)$ in Fase 2).
+    \item Esistono "Schedule in 2PL ma non in TS" (con i pedici intesi come identificatori nativi timestamp): es. $r_2(x) w_2(x) r_1(x) w_1(x)$. Un 2PL la accetta serenamente tramite turnazione con lock; il TS impazzisce e uccide $t_1$ poiché, essendo anagraficamente 1 (più vecchia di 2), si presenta a bussare allo sportello con colpevole ritardo cronologico incappando nel blocco fatale $1 < WTM=2$.
+    \item Esistono ovviamente "Schedule in TS e in 2PL": la confort zone dell'intersezione (es. $r_1(x) r_2(y) w_2(y) w_1(x) r_2(x) w_2(x)$).
+\end{itemize}
+
+A livello filosofico e di gestione sistemistica, l'incomparabilità si traduce in due approcci comportamentali opposti:
+\begin{itemize}
+    \item \textbf{2PL è intrinsecamente "pessimista"}: Presume il disastro e gioca d'anticipo, ergendo barricate e "ponendo le transazioni in attesa" cautelativa. L'effetto collaterale è la paralisi lenta e l'induzione latente del fenomeno di deadlock, innescato dallo stallo incrociato dei rami in attesa.
+    \item \textbf{TS è intrinsecamente "ottimista"}: Non blocca mai la coda. Fa fluire e "va avanti" ad ogni costo; se poi il calcolo cronologico rivela un'intrusione asincrona a posteriori, funge da mietitore e "uccide le transazioni" senza pietà (le quali dovranno essere intercettate dal client e "possono essere rilanciate"). Benché il deadlock sia minimizzato ("TS anche, ma meno perché non ha i lock in lettura"), lo spreco di cicli CPU per calcoli scartati è alto.
+\end{itemize}
+
+Il dilemma per l'ingegnere dei dati ("Le ripartenze sono più o meno costose delle attese?") ha delineato la storia dell'Information Technology:
+"Originariamente", data la ristrettezza delle CPU e la penuria di RAM, abortire e ritentare era folle, quindi "quasi tutti i sistemi preferivano il 2PL". "Ora", con l'avvento dei cluster paralleli ad altissima efficienza e connettività, "si stanno diffondendo" massivamente quelli a fondamento temporale, specificamente le varianti "con timestamp e multiversioni". Il compromesso d'oro nei big-player commerciali è divenuto la tecnica ibrida: "usano 2PL per le transazioni che scrivono" (arginando gli omicidi futili) "e multiversioni per le read-only" (garantendo consultazioni analitiche immediate e non bloccanti).
+
+\section{Controllo Multiversione (MVCC)}
+
+L'impalcatura del Timestamp puro è afflitta dal sanguinoso dazio degli abort in lettura. Riprendendo il tracciato precedente dove giungeva in coda la richiesta $r_{10}(x)$, essa veniva condannata a morte impietosamente dall'anacronismo $10 < 12(WTM)$. "È proprio necessario uccidere $t_{10}$? Potremmo fare qualcos'altro?"
+L'uovo di Colombo dell'ingegneria moderna risponde in maniera geniale: anziché sopprimere l'interrogazione, basterebbe avere l'accortezza di fornirle in pasto e fargli "Leggere il valore precedente!" all'aggiornamento.
+
+Nasce così il \textbf{Controllo di Concorrenza Multiversioni (MVCC)}.
+L'"Idea base" sovverte il principio monolitico del dato singolo: "le scritture" distruttive vengono abolite. Esse non sovrascrivono più la cella in loco, bensì "generano nuove copie" fisiche del medesimo record, espanse lungo la linea del tempo; di converso, le interrogazioni e "le letture leggono la copia "valida" per la transazione" richiedente.
+
+In un siffatto ecosistema, "ogni scrittura genera una nuova copia con un WTM (Write Timestamp) proprio", comportando che, "in generale, ci sono più versioni di un oggetto, con timestamp di scrittura diversi". Le transazioni possono coesistere sfogliando le diverse fotografie temporali. (Mentre permarrà la metavariabile unica $RTM(x)$ per l'oggetto, per rilevare gli storici).
+
+\subsection{Meccanica della Variante Multiversione Pura}
+Il motore gestisce l'arsenale delle copie parallele con il seguente regolamento:
+\begin{itemize}
+    \item \textbf{Gestione della Lettura $r_t(x)$}: È il trionfo dell'ottimismo; in un ambiente MVCC puro, una transazione di lettura "è sempre accettata" a prescindere dal ritardo cronologico. Lo scheduler si erge ad orologiaio e provvede a sfogliare il carosello delle versioni, selezionando unicamente e servendo la singola specifica copia $x_k$ che gode delle seguenti prerogative:
+    \begin{itemize}
+        \item Se il timestamp in ingresso $t$ risulta clamorosamente e numericamente "maggiore di tutti i timestamp delle copie" esistenti nel database, si deduce che è una richiesta d'avanguardia e "allora viene scelta l'ultima versione" disponibile.
+        \item Altrimenti, lo scheduler naviga a ritroso e "si sceglie la versione $k$ tale che $WTM_k(x) < t < WTM_{k+1}(x)$", offrendo alla transazione lenta l'esatta istantanea temporale del dato prima che esso venisse alterato dal passo $k+1$.
+    \end{itemize}
+    \item \textbf{Gestione della Scrittura $w_t(x)$}: Essendo creatrice di cronologia, mantiene un perimetro di rigidità. Se $t < RTM(x)$ (ossia la transazione sta provando sadicamente a inserire nel passato un dato per rimpiazzare una fotografia già estratta in via definitiva da $RTM$), l'inserimento anacronistico non è collocabile e "la richiesta è rifiutata". "Altrimenti", nell'andamento sano, "una nuova versione di $x$ viene generata e stoccata, marchiata permanentemente con $WTM(x) = t$".
+\end{itemize}
+
+Il database non può accatastare versioni obsolete all'infinito per via dello Storage. L'architettura prevede il processo di garbage collection interna (il "VACUUM"): "Versioni precedenti vengono eliminate" e falciate dai cluster fisici del disco non appena lo scheduler si avvede che "nessuno è più interessato a leggerle" (ovvero il timestamp di tutte le transazioni vive e operative risulta superiore e staccato rispetto a quello delle copie decrepite).
+
+Un caveat per l'ingegnere in aula: questa affascinante dinamica purista del timestamp e "Attenzione: non è proprio questa la tecnica che si utilizza in pratica!" a livello nativo e puro. I colossi, come ad esempio PostgreSQL, ne fondono il DNA "in una variante".
+
+\section{Multiversione MVCC in PostgreSQL (Analisi e Anomalie)}
+
+La mappatura delle teorie accademiche incontra compromessi radicali nei "Controllo di Concorrenza in DBMS reali":
+\begin{itemize}
+    \item Piattaforme storiche come \textbf{DB2} adottano come architettura blindata e fondante il "sostanzialmente 2PL stretto" su tutti i fronti (sebbene annegato in una galassia di dettagli interni d'ottimizzazione).
+    \item L'ammiraglia open source \textbf{PostgreSQL} scommette anima e core sul motore "multiversione, con una condizione aggiuntiva".
+\end{itemize}
+La piaga comune di questi due colossi è permettere l'impostazione di "diversi livelli di isolamento anche per le transazioni che scrivono", configurazione pericolosissima e lasca che "è cosa che non si dovrebbe fare" mai se si vuole evitare in radice l'abominio della Lost Update.
+
+\subsection{Livelli di Isolamento PostgreSQL implementati su Multiversion}
+L'unione dell'SQL con MVCC in Postgres partorisce dei comportamenti altamente idiosincratici e distintivi:
+
+\begin{enumerate}
+    \item \textbf{Read Committed (Default Postgres)}:
+    (Nota: In Postgres, il livello nudo "Read Uncommitted" a norma SQL "non è materialmente implementato", ed invocandolo esso retrocede tacitamente e "si comporta nello stesso modo" tutelato del Read Committed).
+    In questo livello base, lo snapshot per le Letture opera magicamente "su dati in commit al momento della lettura". In termini MVCC significa che ogni singola istruzione \texttt{SELECT} avulsa esegue un ricalcolo dello specchio e "vede solo dati andati in commit prima dell'inizio della SELECT stessa" (non dell'avvio della transazione macro, ma della query specifica in fieri), sommandovi per ovvietà contestuale "gli aggiornamenti della transazione in cui è inserita" per preservare la coerenza interna di ramo.
+    Di contro, le manipolazioni e "Scritture" restano asservite al "2PL stretto"; ciò significa che richiedono un lock monolitico pesante che "li tiene fino al commit; e rispetta obbedientemente i lock altrui" restando pietrificate nelle code di attesa (timeout).
+
+    \item \textbf{Repeatable Read}:
+    Eleva enormemente la stabilità dello specchio. Qui le "Letture multiversion" sono fissate e congelate indissolubilmente "sui dati andati in commit all'inizio della transazione", e non ricalcolate per ogni select. La fotografia panoramica del DB è perenne e invariabile per l'intero arco vitale, sommandovi solo i delta interni della "transazione in cui è inserita".
+    Sulle "Scritture" (governate da 2PL Stretto), il motore MVCC impone il feroce "Rispetto delle versioni": il controllore statuisce che "una transazione T non può mai, sotto nessuna giustificazione, avere lock o modificare proattivamente dati che siano stati proditoriamente modificati da un'altra aliena transazione T' in un'epoca temporale \textit{dopo} l'avvio della stessa T". Se si tenta tale sovrascrittura spaziotemporale errata, PostgreSQL innesca un fatal error denominato \textit{serialization failure}.
+    (Nota bene ingegneristica per questo scudo: Il DB in architettura MVCC "considera come inizio della transazione non l'istante vuoto del comando BEGIN TRANSACTION, ma quello effettivo della \textit{prima lettura o scrittura della transazione}" ove lo snapshot primario viene instradato e istanziato).
+
+    \item \textbf{Serializable}:
+    L'olimpo isolativo. Reitera perfettamente le prerogative del Repeatable Read per lo specchio immacolato (Letture multiversion "su dati in commit all'inizio della transazione" più gli update di sessione) e reitera il feroce "rispetto delle versioni" per il blocco di W-W ("una transazione T non può modificare dati modificati da T' dopo l'avvio di T").
+    Ma l'aggiunta salvifica per sconfiggere i fantasmi R-W e le inconsistenze incrociate asincrone è l'introduzione attiva della "Verifica di cicli di conflitti lettura/scrittura" ("read/write dependencies among transactions").
+    Introdotta e resa operativa solo tardivamente a partire dalla "versione 9.1" di PostgreSQL, questa funzionalità non paralizza brutalmente l'infrastruttura con il temuto ed esoso index-locking per predicati astratti; al contrario, essa è "Implementata subdolamente con una variante di lock di predicato". Questo algoritmo invisibile "ricorda e traccia minuziosamente l'ordine delle operazioni e le dipendenze, \textit{senza fisicamente bloccare} i rami in esecuzione". La resa dei conti si sposta drammaticamente in coda: essa viene "verificata aspramente all'atto esatto del commit". Se lo scheduler detecta una "write skew" distruttiva o se deduce retroattivamente che "più transazioni hanno scritto" e generato incroci R-W incostituzionali capaci di violare lo spartito di uno schedule seriale emulato, innesca a freddo l'aborto espiatorio, abortendo il commit senza l'uso preventivo di blocchi d'attesa pesanti.
+\end{enumerate}
+
+\subsection{Esercitazioni e Dinamica Postgres VS 2PL (Scenari a confronto)}
+
+"L'esercizio e la progettualità sono determinanti per studiare e sperimentare il comportamento di uno o più DBMS (Postgres in primis) nella gestione dei livelli d'isolamento". Omettiamo di descrivere i compiti esplorativi JDBC, per addentrarci nei calcoli d'esame cruciali (come gli Esempi 1bis, 1quater e "27/05/2019"), che confrontano la tenuta del MVCC Postgresiano contro un paradigma 2PL liscio.
+
+Si valuti il famigerato \textbf{Scenario "Esempio 1bis": Perdita di Aggiornamento}.
+\begin{align*}
+    t_1&: \text{Start } (\text{livello isolamento } XXX) \\
+    t_2&: \text{Start } (\text{livello isolamento } XXX) \\
+    t_1&: \text{Read}(x) \\
+    t_2&: \text{Read}(x) \\
+    t_1&: x = x + 100 \\
+    t_1&: \text{Write}(x) \quad \rightarrow \quad \text{Commit} \\
+    t_2&: x = x + 1 \\
+    t_2&: \text{Write}(x) \quad \rightarrow \quad \text{Commit}
+\end{align*}
+
+\textbf{Cosa avviene con il rigore del 2PL ("a mano" e in DB2)?}
+Se questo schema viene calato in un ecosistema 2PL (simulando "Esempio 1bis con 2PL" o "Esempio 1quater con 2PL" con isolamento "Serializable"), le prime letture incrociate passano grazie a \texttt{r\_lock} compatibili. Il tracollo in 2PL avviene quando si affacciano le scritte. Quando $t_1$ emette $\text{Write}(x)$ pretende e chiede disperatamente la mutazione in lucchetto esclusivo \texttt{w\_lock}, negato perché $t_2$ ha in pancia un lucchetto di lettura. $t_1$ si blocca in attesa. Disgraziatamente $t_2$ farà lo stesso gioco, chiedendo $\text{Write}(x)$ e l'esclusiva. Le due sorelle formano "attese incrociate": si infrangono nello stallo.
+\textit{Confronto: Il 2PL "va in stallo" (Deadlock)}.
+
+\textbf{Cosa avviene con MVCC (Postgres)?}
+Se eseguito su terminali Postgres (con tabelle \texttt{conti}), imponendo il massimo vigore (\texttt{isolation level serializable} per entrambe o persino \texttt{repeatable read}), le due letture asincrone scorrono felici ed estrapolano dalle memorie la medesima istantanea intatta (es. $Saldo=0$).
+Quando $t_1$ sferra l'update e chiama $\text{Write}(x+100)$ e contestualmente chiude con $commit$, tutto fluisce con successo.
+L'anomalia emerge deflagrando al passaggio di $t_2$. Quando $t_2$, forte della sua obsoleta fotografia iniziale, emette $\text{Write}(x+1)$, il muro del MVCC interviene. Entra in gioco la clausola ferrea del MVCC sui livelli superiori: "una transazione non può modificare dati che siano stati modificati da un'altra transazione T' dopo l'avvio della transazione stessa". Siccome lo snapshot di $t_2$ era vecchio e l'oggetto $x$ è stato deturpato asincronamente da $t_1$, Postgres impietosamente emette un abort di sicurezza.
+\textit{Confronto: MVCC (Postgres) non va mai in stallo e "gestisce la situazione, abortendo una transazione"} ("troppo ottimista, ha fatto avviare entrambe le transazioni e non può portarle a termine, almeno non entrambe").
+
+"Nei casi Serializable e Repeatable Read, la seconda transazione fallisce, perché il dato è stato modificato dalla prima, dopo l'inizio della seconda".
+
+Tuttavia, un cedimento strutturale avviene e dilania l'MVCC Postgresiano \textbf{se l'operatore abbassa negligentemente l'isolamento a livello READ COMMITTED ("Esempio 1-RC bis")}. Sotto RC, la perentoria salvaguardia "rispetto delle versioni" cade. Quando $t_1$ esegue commit su $x=100$, il sistema concede luce verde. Quando $t_2$ tenta l'assalto con $x=1$ (frutto della lettura sporca su base ricalcolata), Postgres, seppur costringendo $t_2$ temporaneamente al blocco dietro il 2PL stretto della scrittura della controparte in attesa del commit, la lascia poi sfogare ciecamente alla riapertura. Postgres sovrascrive, validando l'ultimo arrivato. La "Perdita di aggiornamento" ha materialmente distrutto i $100$ di $t_1$.
+
+\subsection{Esercizio d'Esame 27/05/2019: Le Inconsistenze Occulte}
+Il tranello ultimo del MVCC e dell'interlocking senza lucchetti si manifesta nei domini in cui la semantica applicativa collega letture e scritture incrociate in modi imprevedibili (la cosiddetta \textit{Write Skew}).
+
+Si valuti il formidabile esame ("Scenario 2, esecuzione concorrente") ove intervengono conteggi trasversali su Postgres:
+Una tabella \texttt{impiegati (matricola, cognome, conteggio)} con tuple preesistenti (101 Rossi 1, 102 Bruni 2).
+Due transazioni $t_1$ e $t_2$ operano simultaneamente e perversamente per creare dei cloni incrementati:
+\begin{align*}
+    t_1&: \text{select count(*) into R1} \quad \text{e} \quad \text{insert into impiegati (101, Rossi, R1.C + 1)} \\
+    t_2&: \text{select count(*) into R2} \quad \text{e} \quad \text{insert into impiegati (102, Bruni, R2.C + 1)}
+\end{align*}
+
+\begin{itemize}
+    \item Se la classe isolativa è imposta per decreto a \textbf{SERIALIZABLE}, lo scheduler implementato post versione 9.1 si destreggia magistralmente. Riconosce per calcolo algoritmico che le transazioni soffrono di "cicli di conflitti lettura/scrittura" interpolati asincronamente sulle macrostrutture, deducendo e capendo "che le letture influenzano le scritture" reciproche. Al momento del varco temporale per il commit della seconda sorella ritardataria, il verificatore impone il castigo e "la seconda transazione viene abortita".
+    \item Se l'operatore declassa ingenuamente il profilo richiedendo il \textbf{REPEATABLE READ} (che nell'assioma teorico basta e avanza a precludere gli aggiornamenti fantasma su valori stabili preesistenti), l'architettura MVCC Postgresiana si infossa disastrosamente. Il protocollo RR blocca solo le sovrascritture su stessi record, ma qui si sta operando su \textit{Insert} per record vergini (matricole diversificate 101/102). Postgres, ignorando che l'Insert di $t_2$ perverte ontologicamente il computo logico del \texttt{count} per $t_1$ e viceversa, dichiara il semaforo verde per entrambe le iterazioni.
+\end{itemize}
+"Entrambe le transazioni vengono accettate", e il disastro logico si compie, con un risultato finale (valori spurii del conteggio logico) che una schedulazione seriale perfetta non avrebbe mai e in alcun modo potuto sdoganare, giustificando la sentenza formale che "il controllo di concorrenza ignora la semantica delle operazioni".

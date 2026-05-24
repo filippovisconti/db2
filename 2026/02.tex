@@ -1,0 +1,227 @@
+\chapter{Gestione dell'Affidabilità: Atomicità e Durabilità}
+
+\section{Gerarchia e Persistenza delle Memorie}
+
+La gestione dell'affidabilità in un Sistema di Gestione di Basi di Dati (DBMS) si fonda intrinsecamente sulle caratteristiche fisiche e logiche dei supporti di memorizzazione su cui il sistema opera. L'architettura hardware di riferimento può essere astratta in tre livelli fondamentali di memoria, ciascuno caratterizzato da un diverso grado di persistenza e vulnerabilità:
+
+\begin{itemize}
+    \item \textbf{Memoria centrale (RAM)}: Costituisce il supporto di lavoro primario per l'elaborazione dei dati e ospita il buffer del DBMS. Per sua natura tecnologica, è una memoria volatile, il che significa che non è persistente: al venir meno dell'alimentazione elettrica o in caso di crash del sistema operativo, l'intero contenuto informativo in essa immagazzinato viene istantaneamente perduto.
+    \item \textbf{Memoria di massa (o secondaria, es. Dischi fissi, SSD)}: Rappresenta il supporto di archiviazione principale della base di dati. Essa è persistente, garantendo la conservazione dei dati anche in assenza di alimentazione. Tuttavia, non è infallibile: i dispositivi fisici possono danneggiarsi (guasti meccanici, corruzione magnetica o usura elettronica), portando alla perdita parziale o totale delle informazioni ivi contenute.
+    \item \textbf{Memoria stabile}: È un'astrazione logica "ideale". Si definisce come una memoria teorica che non può mai danneggiarsi o subire perdite di dati. Sebbene un dispositivo fisico singolarmente infallibile non esista in natura, l'astrazione della memoria stabile viene perseguita e approssimata ingegneristicamente attraverso sofisticate tecniche di ridondanza. L'utilizzo di configurazioni RAID (dischi replicati), la dislocazione geografica dei dati e l'ausilio di nastri magnetici o archivi di backup garantiscono che la probabilità di perdita simultanea di tutte le copie rasenti lo zero.
+\end{itemize}
+
+\section{Classificazione dei Guasti}
+
+Per strutturare adeguati meccanismi di ripristino, la teoria dell'affidabilità classifica le anomalie in tre categorie di severità crescente:
+
+\begin{enumerate}
+    \item \textbf{Guasti "soft" (Flessibili o di sistema)}: Includono errori generati da un programma (es. divisioni per zero), crash del sistema operativo o repentine cadute di tensione elettrica (blackout). In queste circostanze, si perde irrimediabilmente il contenuto della memoria centrale (buffer), ma il contenuto salvato sulla memoria secondaria (dischi) resta intatto e non viene corrotto a livello hardware. La procedura di ripristino applicabile in questo scenario è definita \textit{warm restart} (o recovery a caldo), e consiste nel riallineare il database partendo dalle tracce stabili.
+    \item \textbf{Guasti "hard" (Fisici o di supporto)}: Coinvolgono un danneggiamento diretto dei dispositivi di memoria secondaria, come la rottura meccanica della testina di un disco rigido. In questo caso, si perde non solo la memoria centrale, ma anche la memoria secondaria stessa. Tuttavia, i dati preservati nei supporti di memoria stabile (le copie di backup o i sistemi ridondati) rimangono inalterati. Il ripristino, molto più oneroso in termini di tempo, prende il nome di \textit{cold restart} (ripresa a freddo), richiedendo il ripopolamento fisico dei dischi danneggiati a partire dai salvataggi.
+    \item \textbf{Catastrofe}: Rappresenta lo scenario apocalittico in cui si verifica la perdita simultanea non solo dei supporti primari e secondari, ma anche della memoria stabile (es. la distruzione fisica del data center e del sito di backup contemporaneamente). Nell'ingegneria del software transazionale, si pone l'assunto teorico che tale eventualità non si possa verificare, in quanto il DBMS non disporrebbe più di alcun dato sorgente da cui operare un ripristino.
+\end{enumerate}
+
+\subsection{Il Modello "Fail-Stop"}
+
+Il comportamento dinamico del sistema in relazione ai guasti può essere modellato attraverso un automa a stati finiti noto come modello "fail-stop". Questo paradigma assume che il sistema non compia operazioni arbitrarie o bizantine durante un malfunzionamento, ma si blocchi immediatamente smettendo di erogare servizi, prevenendo così la corruzione attiva dei dati.
+
+\vspace{1em}
+\begin{center}
+\begin{tikzpicture}[
+    node distance=3cm,
+    state/.style={draw, ellipse, minimum width=2.5cm, minimum height=1.5cm, align=center, thick},
+    arrow/.style={-{Stealth}, thick, shorten >=1pt, shorten <=1pt}
+]
+
+\node[state] (normal) {Normal};
+\node[state, right=4cm of normal, yshift=2cm] (stop) {Stop};
+\node[state, right=4cm of normal, yshift=-2cm] (recovery) {Recovery};
+
+\draw[arrow] (normal) to[bend left=20] node[above, sloped] {Fail} (stop);
+\draw[arrow] (recovery) to[bend left=20] node[above left, sloped] {Fail} (stop);
+\draw[arrow] (stop) to[bend left=20] node[right] {Boot} (recovery);
+\draw[arrow] (recovery) to[bend left=20] node[below, align=center] {Recovery\\completato} (normal);
+
+\end{tikzpicture}
+\end{center}
+\vspace{1em}
+
+Il sistema opera ordinariamente nello stato \textit{Normal}. L'insorgere di un guasto (\textit{Fail}) lo fa precipitare immediatamente nello stato \textit{Stop}, paralizzando ogni operazione utente. A seguito di un riavvio (\textit{Boot}), il sistema transita in uno stato di \textit{Recovery}, dove esegue le manovre di ripristino. È cruciale notare che anche durante il recovery può verificarsi un nuovo guasto (\textit{Fail}), riportando il sistema allo stato di \textit{Stop}. Solo quando la procedura di ripristino giunge a termine con successo, il sistema rientra nello stato \textit{Normal}, riaprendo l'accesso alle applicazioni.
+
+\section{Il Gestore dell'Affidabilità e il Log}
+
+Il nucleo architetturale demandato alla salvaguardia di atomicità e durabilità è il \textit{Gestore dell'affidabilità}. Esso ha il duplice compito di supervisionare l'esecuzione ordinaria dei comandi transazionali — ossia le fasi di \texttt{start transaction} (indicata con $B$, begin), \texttt{commit work} ($C$) e \texttt{rollback work} (o abort, $A$) — e di orchestrare le complesse e delicate operazioni di ripristino post-guasto (sia \textit{warm restart} che \textit{cold restart}).
+
+Per assolvere a queste funzioni critiche, il Gestore dell'affidabilità fa un impiego intensivo di informazioni ridondanti. Gli strumenti principali a sua disposizione sono due:
+\begin{enumerate}
+    \item \textbf{Il Log (o "giornale" / "diario di bordo")}: È l'elemento cardine dell'intera architettura. Consiste in un archivio permanente, rigidamente collocato in memoria stabile, che registra la cronologia di ogni singola operazione svolta. La sua struttura è quella di un file rigorosamente sequenziale: riporta le azioni esattamente nell'ordine temporale in cui si verificano. Anche se, per motivi di latenza, i record non vengono fisicamente scritti sul disco in tempo reale al millisecondo (esistono code nel buffer del log), essi vi approdano sempre e comunque in ordine strettamente cronologico.
+    \item \textbf{Il Dump}: Rappresenta una copia di riserva statica (backup) dell'intera base di dati, anch'essa salvata in memoria stabile. Funge da "punto di partenza" globale in caso di disastri fisici (cold restart), su cui successivamente riapplicare le operazioni estratte dal log sequenziale.
+\end{enumerate}
+
+\subsection{Metafore del Log: Arianna, Hansel e Gretel}
+Il ruolo concettuale del log può essere compreso appieno attraverso due celebri allegorie della narrativa e del mito:
+\begin{itemize}
+    \item \textbf{Il filo di Arianna}: Nel labirinto informatico delle transazioni intrecciate, il log agisce come il filo srotolato da Teseo. Consente al sistema, in caso di vicolo cieco logico (un \texttt{abort}) o di interruzione anomala, di tornare esattamente sui propri passi ripercorrendo a ritroso il tragitto, disfacendo progressivamente le operazioni fino al punto di ingresso iniziale ($B(T)$), e uscendone in modo sicuro e pulito.
+    \item \textbf{I sassolini e le briciole di Hansel e Gretel}: Questa metafora illustra la fondamentale differenza tra una memoria volatile e una stabile. Se le operazioni vengono tracciate in memoria centrale, è come se venissero segnate con delle briciole di pane: al verificarsi di un guasto (l'arrivo degli uccelli nel bosco), le tracce svaniscono, rendendo impossibile il ripristino. Scrivere il log in memoria stabile, invece, equivale a tracciare il sentiero con pietre e sassolini: essi resistono agli eventi avversi esterni, rimanendo permanentemente ancorati al suolo e permettendo sempre di ritrovare la strada di casa (la consistenza del database).
+\end{itemize}
+
+\section{Architettura del Controllore dell'Affidabilità}
+
+Il posizionamento del Gestore dell'affidabilità nello stack interno del DBMS richiede un'interazione continua con i livelli superiori e inferiori.
+
+\vspace{1em}
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1cm and 0.5cm,
+    box/.style={draw, rectangle, minimum height=0.8cm, text width=4.5cm, align=center, thick},
+    db/.style={draw, cylinder, shape border rotate=90, aspect=0.2, minimum height=1.5cm, minimum width=2.5cm, align=center, thick},
+    arrow/.style={-, thick} % Notiamo che lo schema usa linee semplici, aggiungiamo labels
+]
+
+% Top level
+\node[box] (metodi) {Gestore dei\\metodi d'accesso};
+\node[box, right=1.5cm of metodi] (transazioni) {Gestore delle\\transazioni};
+
+% Middle level
+\node[box, below=1.5cm of $(metodi)!0.5!(transazioni)$, text width=6cm] (affidabilita) {\textbf{Gestore della affidabilità}};
+
+% Lower levels
+\node[box, below=1.2cm of affidabilita] (buffer) {Gestore\\del buffer};
+\node[box, below=1.2cm of buffer] (memoria) {Gestore della\\memoria secondaria};
+
+% DB Cylinder
+\node[db, below=1cm of memoria] (db_log) {BD\\[0.5cm]Log};
+
+% Connections with labels
+\draw[arrow] (metodi.south east) -- (affidabilita.north west) node[midway, left, align=right, xshift=-0.1cm] {fix, unfix};
+\draw[arrow] (transazioni.south west) -- (affidabilita.north east) node[midway, right, align=left, xshift=0.1cm] {begin, commit, abort};
+
+\draw[arrow] (affidabilita.south) -- (buffer.north) node[midway, right, align=left] {fix, unfix, force\\(pagine BD e log)};
+\draw[arrow] (buffer.south) -- (memoria.north) node[midway, right] {read, write};
+\draw[arrow] (memoria.south) -- (db_log.north);
+
+\end{tikzpicture}
+\end{center}
+\vspace{1em}
+
+Come evidenziato dall'architettura, il Gestore dell'affidabilità riceve dal gestore delle transazioni le primitive decisionali (\texttt{begin}, \texttt{commit}, \texttt{abort}) e dal gestore dei metodi di accesso le richieste di interazione con i dati. A sua volta, comanda il Gestore del buffer per ancorare temporaneamente le pagine in memoria (tramite le chiamate \texttt{fix} e \texttt{unfix}) e impone al buffer di scaricare in via perentoria sul supporto fisico i dati vitali tramite il comando di \texttt{force}. Quest'ultimo è un ordine tassativo di scrittura sincrona (bypassando le logiche di rinvio del buffer) applicato alle pagine della base di dati e, soprattutto, alle pagine del log, che poi verranno lette/scritte fisicamente (\texttt{read}, \texttt{write}) dal gestore della memoria secondaria.
+
+\section{Modello di Riferimento delle Operazioni}
+
+Al livello fisico-logico in cui opera il gestore dell'affidabilità, la transazione perde la sua semantica applicativa di alto livello. Il sistema non ragiona più in termini di "trasferimento bancario" o di "incremento di stipendio". Una transazione viene declassata e considerata unicamente come una nuda e cruda sequenza di operazioni di input-output su "oggetti" astratti (che possono coincidere fisicamente con un record della tabella o con un intero blocco/pagina di memoria).
+
+Le operazioni atomiche riconosciute su un oggetto $O$ da una transazione $T$ sono essenzialmente tre:
+\begin{itemize}
+    \item $I(O)$: inserimento (insert) di un nuovo oggetto.
+    \item $D(O)$: eliminazione (delete) di un oggetto $O$ esistente.
+    \item $U(O)$: aggiornamento (update) dello stato dell'oggetto $O$.
+\end{itemize}
+
+Il gestore dell'affidabilità ignora completamente le formule logiche del programma. Per esempio, se il programma impartisce un \texttt{x := x + 1}, al gestore non interessa l'operatore aritmetico. Esso si limita a fotografare lo stato binario delle memorie, registrando esclusivamente:
+\begin{itemize}
+    \item Il valore posseduto dall'oggetto "prima" dell'esecuzione dell'operazione, denominato \textbf{Before State (BS)}. È rilevante ed esiste solo per le operazioni di eliminazione e di aggiornamento.
+    \item Il valore assunto dall'oggetto "dopo" l'esecuzione dell'operazione, denominato \textbf{After State (AS)}. È rilevante ed esiste solo per le operazioni di inserimento e di aggiornamento.
+\end{itemize}
+Nell'esempio \texttt{x := x + 1}, il gestore si preoccuperà solo di annotare che il BS era $3$ e che l'AS è divenuto $4$.
+
+\section{Composizione e Scrittura del Log}
+
+Alla luce del modello a stati fisici descritto, il file sequenziale del log si popola di specifici \textit{record} altamente strutturati.
+Da un lato, troviamo i \textbf{record delle transazioni}, formattati specificando l'identificatore della transazione $T$, l'oggetto $O$ e gli stati pertinenti:
+\begin{itemize}
+    \item $B(T)$: segnala il \textit{begin}, ovvero l'avvio formale della transazione.
+    \item $I(T, O, AS)$: traccia un inserimento. L'oggetto nasce ora, quindi non possiede un before state, ma solo il nuovo after state.
+    \item $D(T, O, BS)$: traccia una cancellazione. L'oggetto viene distrutto, si annota solo il before state prima della scomparsa, per permetterne l'eventuale resurrezione in caso di annullamento.
+    \item $U(T, O, BS, AS)$: traccia un aggiornamento. È l'operazione più ricca in quanto prevede la cattura contemporanea di come l'oggetto era (BS) e di come l'oggetto è diventato (AS).
+    \item $C(T)$ e $A(T)$: sanciscono l'esito finale. $C(T)$ rappresenta il \textit{commit}, $A(T)$ l'avvenuto \textit{abort}.
+\end{itemize}
+
+Dall'altro lato, nel log confluiscono i \textbf{record di sistema}, necessari a scopi organizzativi e di calibrazione delle riprese, come i marker di \textit{dump} e i \textit{checkpoint} (punti di sincronizzazione periodica tra buffer e disco).
+
+\subsection{L'Esito e l'Irrevocabilità del Commit}
+
+Il punto di non ritorno logico di una transazione si ha in un istante temporale precisissimo: una transazione si intende conclusa positivamente solo ed esclusivamente quando il record di commit $C(T)$ viene fisicamente scritto e consolidato nel log in memoria stabile. In quel millisecondo esatto, l'esito acquisisce la natura di atto irrevocabile.
+
+Da questo postulato fondamentale derivano delle ferree direttive di ingegnerizzazione: il comando di commit non può mai rischiare di andare perduto a causa di latenze del buffer. Pertanto, il record di commit $C(T)$ va scritto subito, forzando la mano al sistema operativo attraverso l'operazione di \texttt{force} verso la memoria stabile. Per contro, l'annotazione dei record di abort $A(T)$ può avvenire in modalità asincrona e più rilassata, poiché se il sistema dovesse schiantarsi prima di scrivere su disco un \texttt{abort}, al riavvio, non trovando alcun \texttt{commit}, dedurrebbe implicitamente l'incompiutezza della transazione e la abortirebbe comunque, arrivando al medesimo risultato finale.
+
+A causa della netta demarcazione imposta dal record $C(T)$, un guasto del sistema divide le transazioni in due grandi insiemi comportamentali:
+\begin{itemize}
+    \item Un guasto sopravvenuto \textit{prima} del compimento del \texttt{commit} interrompe il processo e lascia tracce parziali. Occorre estirpare questi dati "sporchi" per ricostruire fedelmente lo stato originario della base di dati antecedente l'inizio.
+    \item Un guasto sopravvenuto \textit{successivamente} al compimento del \texttt{commit} non deve in alcun modo avere conseguenze. Se, a causa dell'uso del buffer, lo stato finale promesso dalla transazione non è stato fisicamente scaricato sui dischi della base di dati prima del blackout, il sistema è contrattualmente obbligato a ricostruirlo deducendolo dal log.
+\end{itemize}
+
+Nasce dunque l'esigenza vitale di dotare il DBMS di meccanismi meccanici simmetrici per \textit{annullare} gli errori (Undo) e per \textit{ricostruire} i dati garantiti (Redo).
+
+\section{Meccanismi di Ripristino: Undo e Redo}
+
+Le funzioni di Undo (disfare) e Redo (rifare) operano manipolando le immagini di stato presenti nel log.
+\paragraph{Undo di un'azione su un oggetto O:}
+\begin{itemize}
+    \item Se l'azione era un \texttt{update} o un \texttt{delete}, l'undo preleva rigorosamente dal log il valore del Before State (BS) e lo ricopia fisicamente sopra l'oggetto $O$ nel database, ripristinando il passato.
+    \item Se l'azione originaria era un \texttt{insert}, l'undo consiste semplicemente nell'eliminare l'oggetto $O$ appena creato (se ancora presente a livello fisico).
+\end{itemize}
+
+\paragraph{Redo di un'azione su un oggetto O:}
+\begin{itemize}
+    \item Se l'azione era un \texttt{insert} o un \texttt{update}, il redo preleva dal log il valore dell'After State (AS) e lo ricopia a forza sull'oggetto $O$, riaffermando l'avvenuta modifica.
+    \item Se l'azione era un \texttt{delete}, il redo sopprime nuovamente l'oggetto $O$ (qualora fosse impropriamente riapparso o rimasto pendente).
+\end{itemize}
+
+Una proprietà matematica e strutturale imprescindibile di queste due primitive è la loro \textbf{idempotenza}. Un'operazione è idempotente se la sua applicazione multipla e ripetuta su un dato restituisce esattamente lo stesso identico risultato della sua singola applicazione iniziale. In formule matematiche:
+$$undo(undo(A))=undo(A)$$
+$$redo(redo(A))=redo(A)$$
+L'idempotenza riveste un'importanza cardinale per l'affidabilità: se durante l'esecuzione di una fase di recovery interviene drammaticamente un ulteriore guasto (si veda l'anello \textit{Recovery $\rightarrow$ Fail} nel modello fail-stop), il sistema può, al riavvio successivo, riapplicare ciecamente e da capo tutte le procedure di Undo e Redo partendo dalle direttive del log, senza il timore di corrompere lo stato calcolando la logica due o più volte. Scrivere l'After State in modo assoluto e non relativo (es. porre $x=4$ anziché istruire di fare $+1$) è ciò che garantisce questa assenza di effetti collaterali distruttivi nelle esecuzioni multiple.
+
+\section{Le Regole Aurea e le Modalità di Scrittura}
+
+Il funzionamento sicuro delle riprese dipende dall'osservanza di due regole sequenziali inviolabili. Il concetto base, che riecheggia la saggezza popolare del "prendete nota della password prima di procedere al reset", impone che si debba tassativamente scrivere nel file di log l'intenzione prima di apportare qualsiasi alterazione e prima di convalidarla.
+
+\begin{enumerate}
+    \item \textbf{Write-Ahead-Log (WAL)}: Onde potersi riservare la garanzia di "disfare" un'azione in corso (Undo), il sistema impone che venga fisicamente forzata la scrittura del \textit{Before State (BS)} sul log in memoria stabile \textit{prima} ancora che avvenga l'equivalente scrittura del dato modificato nelle tabelle fisiche della base di dati.
+    \item \textbf{Regola della Commit-Precedenza}: Onde potersi riservare la garanzia di "rifare" un'azione legittimata dal commit (Redo), il sistema impone che venga fisicamente forzata la scrittura dell'\textit{After State (AS)} sul log in memoria stabile \textit{prima} di poter formalizzare sul log medesimo il record terminale di \texttt{commit} $C(T)$. Come insegna la metafora: "scrivetevi la nuova password su un taccuino indelebile prima di farvene sostituire una vecchia".
+\end{enumerate}
+
+Rispettando questi due severi vincoli cronologici a carico del log, il gestore del buffer mantiene tuttavia una certa libertà logistica su \textit{quando} materialmente far scaricare le pagine modificate dei dati veri e propri sulla memoria secondaria del database. Questa libertà determina l'esistenza di tre distinte politiche di scrittura: \textbf{immediata}, \textbf{differita} e \textbf{mista}.
+
+Le tre architetture di scrittura mostrano comportamenti antitetici e determinano approcci differenti nell'affrontare le transazioni pendenti al momento dello schianto di sistema ("Crash"). A scopo esplicativo, supponiamo una linea temporale incrociata dalla barriera fatale del Crash. Sulla linea operano cinque transazioni: $T1, T2$ e $T3$ che giungono al commit prima del guasto, mentre $T4$ e $T5$ vengono falciate dal crash in piena operatività, divenendo "uncommitted".
+
+\subsection{Modalità Immediata}
+Nella modalità immediata, il DBMS è autorizzato a scaricare liberamente le modifiche sui dischi della base di dati man mano che la transazione avanza, a patto di rispettare solo il Write-Ahead-Log. Pertanto, nel momento del crash, il DB fisico contiene sia i valori modificati e legittimati dalle transazioni completate ($T1, T2, T3$), sia i residui altamente compromettenti delle transazioni rimaste a metà ($T4, T5$).
+
+\begin{itemize}
+    \item \textbf{Effetto Recovery}: Le transazioni andate in commit non richiedono alcuna attenzione protettiva (esito "\textit{Niente}"), in quanto si ha la certezza matematica che i loro esiti siano già trascritti e permanenti. Al contrario, i residui di $T4$ e $T5$ costituiscono un grave pericolo e debbono essere rimossi retroattivamente leggendo i BS dal log.
+    \item \textbf{Paradigma}: Questa politica definisce un'architettura \textbf{UNDO-only (No-REDO)}.
+\end{itemize}
+
+\subsection{Modalità Differita}
+All'estremo opposto, la politica differita impone un vincolo di cautela ferreo al buffer: a nessuna transazione è concesso di alterare materialmente le pagine della base di dati residente su disco fino all'istante esatto in cui non ha certificato il proprio \texttt{commit}. Al sopraggiungere del guasto, il DB è assolutamente immacolato per quanto riguarda i valori delle transazioni uncommitted ($T4, T5$), ma al tempo stesso non vi è più alcuna certezza ingegneristica che le transazioni regolarmente concluse e commitate ($T1, T2, T3$) abbiano avuto il tempo materiale di essere processate e fisicamente riversate dalla memoria volatile ai piatti del disco.
+
+\begin{itemize}
+    \item \textbf{Effetto Recovery}: Le transazioni interrotte $T4$ e $T5$ vengono puramente ignorate (esito "\textit{Niente}"), in quanto non hanno mai contaminato il disco fisico. Per $T1, T2$ e $T3$, si procede a una forzata ricostruzione leggendo in massa gli AS dal log stabile e reinstallandoli nel disco.
+    \item \textbf{Paradigma}: Questa politica definisce un'architettura \textbf{REDO-only (No-UNDO)}.
+\end{itemize}
+
+\subsection{Modalità Mista}
+Nella pratica tecnologica contemporanea, la rigidità delle prime due metodologie si rivela penalizzante. Si adotta perciò una terza variante, la modalità mista. In questo scenario la scrittura verso la memoria di massa può essere pilotata in modo del tutto asincrono e svincolato: il buffer può decidere di scrivere in maniera precoce (immediata) per liberare spazio ramificato, oppure procrastinare a lungo le scritture per accorpare blocchi (differita). Al verificarsi del cataclisma, il disco verserà in uno stato di caos indifferenziato: vi saranno porzioni salvate di transazioni compiute ($T1 \dots T3$), assieme a tracce di transazioni interrotte precocemente ($T4, T5$).
+
+\begin{itemize}
+    \item \textbf{Effetto Recovery}: L'algoritmo di ripristino deve farsi carico di entrambe le manovre. Per le transazioni incomplete ($T4, T5$) deve attuare un severo \textit{Undo}; per quelle garantite dal commit ($T1 \dots T3$) deve innescare un \textit{Redo} per esser certo della presenza dei dati.
+    \item \textbf{Paradigma}: L'architettura assume forma biunivoca: \textbf{REDO - UNDO}.
+\end{itemize}
+
+Quale conviene implementare? La risposta, nonostante l'apparente appesantimento in fase di recovery (dove il sistema deve attuare sia undo che redo), verte indiscutibilmente a favore della modalità mista. Essa delega la totale indipendenza decisionale al Gestore del buffer, permettendogli di basare la calendarizzazione del flush su euristiche di bilanciamento del carico hardware. Si sceglie deliberatamente di pagare un prezzo computazionale nettamente maggiore nelle (rare) ipotesi in cui si verifichi un guasto severo, pur di privilegiare, abbattere le latenze e massimizzare la resa delle prestazioni durante l'ordinaria e continua operatività dell'infrastruttura di database (il "salvo il caso di guasto").
+
+\section{Algoritmo di Rollback (Annullamento Isolato)}
+
+I meccanismi di Undo studiati per contrastare i guasti generalizzati di sistema trovano la loro più elementare ed elegante applicazione nella procedura di rollback isolato. Si tratta dell'operazione di annullamento chirurgico mirato di un'unica e specifica transazione $T$ (presumibilmente abortita su richiesta suicida dell'applicativo o su omicidio logico del motore relazionale) che non sia riuscita a giungere alla milestone del commit.
+
+L'algoritmo di \texttt{rollback} opera secondo la seguente meccanica procedurale:
+\begin{enumerate}
+    \item Il sistema inizia a scandire il file di log partendo rigorosamente dalla fine (dal record temporale più recente) e procedendo a ritroso, riga dopo riga, fino a giungere in prossimità del record tracciato come \texttt{begin} ($B(T)$) relativo alla specifica transazione da annullare.
+    \item Durante questa risalita lungo il "filo di Arianna", per ogni record intercettato che si riferisce in modo incontrovertibile a una manipolazione di stato (aggiornamento, cancellazione o inserimento) effettuata da quella medesima transazione $T$, il controllore esegue meccanicamente la corrispettiva istruzione formale di \textit{undo}. Le modifiche vengono fisicamente scartate restituendo la cella di memoria al suo Before State certificato.
+    \item Una volta azzerata la cronologia della transazione infausta, il sistema cristallizza lo stato annotando perennemente, aggiungendolo in coda al termine della lista sequenziale del log, un esplicito record strutturale formattato come \texttt{rollback} (o $A(T)$).
+\end{enumerate}
+
+Le motivazioni logiche dietro questa prassi risiedono nell'ottimizzazione del recupero:
+Innanzitutto, perché si procede leggendo la cronologia tassativamente a ritroso? Il motivo è duplice. In prima battuta, la scansione inversa (backward scan) è computazionalmente più economica, dato che le transazioni aperte e abortite recentemente si trovano allocate di norma nella parte terminale della coda del file sequenziale. In secondo luogo, ed è la motivazione architetturalmente più profonda, procedere a ritroso garantisce la coerenza nel sovrascrivere. Qualora una transazione avesse imperversato operando iterativamente modifiche plurime sullo \textit{stesso identico} oggetto (ad esempio aggiornando una cella in rapida successione prima $3 \to 4$, poi $4 \to 5$, ecc.), disfando le azioni partendo dall'ultimo passo e scendendo per strati temporali, il sistema si garantisce che, giunto al termine dell'operazione di annullamento, l'oggetto regredirà esibendo come esito finale e inossidabile il valore originario di partenza, evitando corruzioni o falsi positivi intermedi.
+
+Infine, per quale scopo si esige l'apposizione persistente di un record terminale di \texttt{rollback} in fondo al diario di bordo? Tale contrassegno funge da epitaffio dichiarativo: occorre fornire una prova indelebile per il motore relazionale affinché esso (e soprattutto qualsiasi esecuzione futura o ripresa post-disastro del gestore dell'affidabilità) "sappia" legalmente e permanentemente che quella specifica catena di tentativi è morta, è stata esplicitamente annullata, e che nessuna manovra futura dovrà mai azzardarsi a prenderne in considerazione il consolidamento logico.

@@ -1,0 +1,229 @@
+% Pacchetti richiesti nel preambolo del main.tex per la corretta compilazione di questo capitolo:
+% \usepackage{tikz}
+% \usetikzlibrary{shapes.geometric, positioning, arrows.meta, calc}
+% \usepackage{amsmath}
+% \usepackage{amssymb}
+
+\chapter{Formalizzazione della Concorrenza: Dai Grafi ai Lock}
+
+\section{Dimostrazione: Conflict-Serializzabilità implica View-Serializzabilità}
+
+Nei capitoli precedenti è stato enunciato un teorema cruciale della teoria della concorrenza: \textit{Ogni schedule conflict-serializzabile (CSR) è anche view-serializzabile (VSR)}. Tuttavia, si è ribadito che il percorso inverso non è necessariamente vero, come dimostrato dall'esistenza di controesempi (es. lo schedule $S: r_1(x) w_2(x) w_1(x) w_3(x)$, il quale è VSR in quanto equivalente alla sua controparte seriale, ma rigettato da CSR a causa dei cicli di conflitto $w_2 \to w_1$ intersecati con $r_1 \to w_2$).
+
+Per solidificare questa gerarchia insiemistica, è doveroso dimostrare la "sufficienza", ovvero fornire una prova rigorosa del perché l'appartenenza all'insieme CSR garantisca inoppugnabilmente l'appartenenza all'insieme VSR.
+
+Rivediamo le definizioni strutturali:
+\begin{itemize}
+    \item \textbf{CSR}: Afferma l'esistenza di uno schedule seriale che risulti \textit{conflict-equivalente} ($\approx_C$) allo schedule in esame.
+    \item \textbf{VSR}: Afferma l'esistenza di uno schedule seriale che risulti \textit{view-equivalente} ($\approx_V$) allo schedule in esame.
+\end{itemize}
+
+Per dimostrare inequivocabilmente che CSR implica VSR, il passaggio matematico sufficiente consiste nel dimostrare che la stessa proprietà di conflict-equivalenza ($\approx_C$) implica invariabilmente la proprietà di view-equivalenza ($\approx_V$). In altri termini, occorre provare che se si prendono due schedule qualsiasi $S_1$ e $S_2$ e si assume per ipotesi che siano conflict-equivalenti ($S_1 \approx_C S_2$), da tale postulato deriverà per forza logica che essi sono anche view-equivalenti ($S_1 \approx_V S_2$).
+
+Procediamo analizzando i due requisiti pilastro della view-equivalenza, servendoci della dimostrazione per assurdo:
+\begin{enumerate}
+    \item \textbf{Requisito: Stesse scritture finali}.
+    Assumiamo per assurdo che $S_1$ e $S_2$ siano conflict-equivalenti, ma \textit{non} possiedano le stesse scritture finali. Se così non fosse, significherebbe che esisterebbero all'interno dei due schedule due specifiche scritture, orientate su uno \textit{stesso identico oggetto}, che si presentano posizionate in un ordine cronologico inverso o diverso l'una rispetto all'altra. Ma la definizione stessa impone che due operazioni di scrittura (Write-Write) volte su uno stesso oggetto generino istituzionalmente un \textbf{conflitto}. Poiché l'ipotesi di partenza certifica che $S_1$ e $S_2$ sono conflict-equivalenti, essi per definizione di $\approx_C$ devono obbligatoriamente mantenere il medesimo identico ordine per \textit{tutte} le coppie in conflitto. Questo genera una contraddizione insanabile: due schedule non potrebbero in nessun caso dirsi conflict-equivalenti se presentassero le scritture finali sfasate. Pertanto, il requisito è sempre garantito.
+    \item \textbf{Requisito: Stessa relazione "legge-da" (Reads-From)}.
+    Assumiamo per assurdo che $S_1$ e $S_2$ siano conflict-equivalenti, ma la relazione "legge-da" \textit{non} sia preservata. Se così non fosse, significherebbe che nel passaggio da uno schedule all'altro l'informazione captata da una determinata lettura sia cambiata. Ciò potrebbe avvenire solo se delle scritture (su uno stesso oggetto) avessero alterato il loro ordine reciproco prima della lettura, oppure se le coppie di lettura-scrittura (sempre su uno stesso oggetto) si trovassero collocate in un ordine diverso. In entrambi i casi si configurerebbe l'inversione posizionale di un conflitto manifesto (un conflitto W-W nel primo caso, o un conflitto R-W/W-R nel secondo). E ancora, se si presentasse l'inversione di una coppia in conflitto, per definizione stessa crollerebbe l'ipotesi di $\approx_C$. La $\approx_C$ sarebbe violata. La contraddizione chiude la dimostrazione: l'inviolabilità dell'ordine dei conflitti blinda e "congela" l'intero tessuto delle letture e delle scritture finali.
+\end{enumerate}
+
+La dimostrazione sancisce inequivocabilmente che la conflict-serializzabilità è una condizione logica più stretta, rigorosa e sufficiente per ammettere l'inclusione di un elemento nel grande insieme della view-serializzabilità.
+
+\section{Il Grafo dei Conflitti e l'Aciclicità}
+
+Sebbene l'impianto teorico del CSR ci abbia liberato dall'onere NP-completo di dover tentare tutte le permutazioni della view-equivalenza, l'ingegneria del software richiede un meccanismo computazionale deterministico e algoritmico per validare uno schedule CSR. Questo strumento risolutivo prende il nome di \textbf{Grafo dei Conflitti}.
+
+Il grafo dei conflitti è un digrafo (un grafo matematico orientato) che si costruisce astraendo le relazioni temporali di uno schedule in ingresso. La sua mappatura avviene secondo due direttive precise:
+\begin{itemize}
+    \item \textbf{Nodi}: Si genera un nodo geometrico univoco per ogni singola transazione $t_i$ coinvolta attivamente nello schedule.
+    \item \textbf{Archi}: Si traccia un arco orientato unidirezionale che parte dal nodo della transazione $t_i$ e punta al nodo della transazione $t_j$ (con $i \neq j$) se e solo se sussiste almeno un "conflitto" materiale (di tipo R-W, W-R, o W-W) tra un'azione $a_i$ pertinente a $t_i$ e un'azione $a_j$ pertinente a $t_j$, \textbf{con l'aggiunta della condizione fondamentale che l'azione $a_i$ preceda cronologicamente l'azione $a_j$ all'interno del flusso temporale dello schedule}. La freccia rappresenta dunque il vettore del tempo intersecato all'ostilità.
+\end{itemize}
+
+L'utilità suprema della costruzione del grafo è codificata in un teorema risolutivo:
+\textbf{Teorema}: \textit{Uno schedule $S$ risiede e appartiene all'insieme CSR se e solo se il suo corrispondente Grafo dei Conflitti risulta matematicamente ACICLICO (privo di cicli chiusi o loop orientati)}.
+
+\subsection{Dimostrazione del Teorema dell'Aciclicità}
+La dimostrazione del teorema si regge su un lemma propedeutico vitale: \textit{Due schedule che sono conflict-equivalenti tra di loro ($S_1 \approx_C S_2$) producono e possiedono inequivocabilmente lo stesso identico Grafo dei Conflitti}.
+
+\textit{Dimostrazione del Lemma}: Per assurdo, si supponga che $S_1$ e $S_2$ siano equivalenti ($\approx_C$), ma i loro grafi generati differiscano. Ne conseguirebbe che nel grafo di uno dei due schedule (supponiamo in $S_1$) dovrebbe esistere tracciato un arco orientato che risulta del tutto assente nel grafo dell'altro ($S_2$). Siccome ogni arco tracciato è l'espressione diretta e biunivoca di due azioni che in $S_1$ si trovano in conflitto e in uno specifico ordine cronologico, il fatto che tale arco non compaia o sia invertito nel grafo di $S_2$ implicherebbe che quelle identiche due azioni in conflitto si trovano nel flusso di $S_2$ disposte in un ordine ribaltato o diverso. Ma se l'ordine di due azioni in conflitto si inverte, per definizione, la conflict-equivalenza $\approx_C$ si frantuma. La deduzione crea una contraddizione logica insanabile: due schedule equivalenti per conflitti condividono invariabilmente la medesima topologia.
+
+Risolto il lemma, si procede a dimostrare la bi-implicazione del teorema principale (se e solo se).
+
+\textbf{Parte 1: Se S è in CSR, allora il suo grafo è aciclico.}
+Per definizione costituzionale di CSR, se lo schedule sfuso $S$ appartiene alla categoria CSR, significa che esso deve poter risultare conflict-equivalente ($\approx_C$) a un qualche ipotetico schedule perfettamente e formalmente seriale (denominato convenzionalmente $S_0$). In virtù del lemma appena provato, lo schedule intrecciato $S$ e lo schedule in fila indiana $S_0$ condividono il medesimo grafo. Osservando esclusivamente lo schedule puro $S_0$ (essendo seriale, le sue transazioni $t_i$ avvengono per intero ed in stretta sequenza una dopo l'altra senza accavallamenti), si evince che in $S_0$ possono nascere conflitti diretti tra un'azione della transazione $t_i$ e un'azione della transazione $t_j$ esclusivamente se $t_i$ è stata servita "prima" di $t_j$ ($i < j$ nell'ordine logico di esecuzione). È materialmente precluso che vi siano archi che tornano indietro nel tempo. La presenza formale di un ciclo orientato in un grafo necessita in modo imprescindibile l'esistenza di almeno un arco di ritorno che vada da un nodo $j$ maggiore verso un nodo $i$ minore ($i > j$). Poiché nello schedule seriale $S_0$ i vettori viaggiano solo in un'unica direzione, il suo grafo è intrinsecamente e perentoriamente aciclico. Essendo il grafo di $S$ l'esatta copia carbone del grafo di $S_0$, anche il grafo di $S$ è inconfutabilmente aciclico.
+
+\textbf{Parte 2: Se il grafo di S è aciclico, allora S è in CSR.}
+Partendo dalla constatazione che il grafo orientato generato da $S$ risulta aciclico (cioè è un DAG - Directed Acyclic Graph), le leggi della teoria dei grafi assicurano che per un simile reticolo esiste sempre la possibilità di computare ed estrarre un cosiddetto "Ordinamento Topologico". Un ordinamento topologico consiste in una "numerazione logica" o ridisposizione lineare di tutti i nodi, tale per cui l'intero grafo contenga ed esibisca esclusivamente frecce dirette dal basso verso l'alto (esclusivamente archi orientati da $i$ verso $j$ rispettando costantemente la condizione $i < j$). Costruendo e assemblando artificialmente uno schedule seriale le cui singole transazioni siano fisicamente accodate prestando cieca obbedienza all'ordinamento topologico calcolato, si ottiene una sequenza lineare che risulta per forza di cose "equivalente" al caotico schedule originale $S$. L'equivalenza sussiste perché in tale architettura tutti i conflitti $(i,j)$ rispetteranno puntualmente e uniformemente la legge vettoriale $i < j$, non contravvenendo a nessun ordine. Si decreta quindi che esiste ed è ricavabile uno schedule seriale equivalente ad $S$. Il corollario è definitivo: lo schedule intrecciato $S$ merita di stare in CSR.
+
+\section{Limiti Operativi della Conflict-Serializzabilità nella Pratica DBMS}
+
+L'approdo alla conflict-serializzabilità e allo strumento dell'aciclicità tramite grafi topologici costituisce un immenso passo avanti per l'accademia informatica. Il problema NP-completo della view-equivalenza è stato brillantemente declassato. Con il ricorso ad opportune strutture dati algoritmiche (costruzione matriciale e visita in profondità), la costruzione e l'analisi di aciclicità per un grafo di conflitti si tramuta in un'operazione risolvibile con una banalissima e scalabile "complessità lineare".
+
+Nonostante questo successo matematico, la cruda e fredda prassi dell'ingegneria dei sistemi rivela che \textbf{anche la conflict-serializzabilità (applicata in modo nudo e diretto) è, in pratica, del tutto inutilizzabile per un motore relazionale reale}.
+
+Il motivo di questa bocciatura sistemistica non è da ascrivere alla lentezza della matematica, bensì ad alcune incolmabili assunzioni e all'architettura temporale del motore ("Però..."):
+\begin{enumerate}
+    \item \textbf{L'ignoranza del futuro e la natura "incrementale"}: L'algoritmo del grafo dei conflitti risulterebbe magnificamente efficiente \textit{se} lo scheduler potesse disporre a priori e conoscere fin dal principio dell'elaborazione l'intera sceneggiatura completa delle operazioni dello schedule (il grafo precostruito). Questa omniscienza non si verifica mai nella vita reale di un server. Lo scheduler è un "guardiano" cieco che opera e valuta le direttive in maniera strettamente "incrementale": riceve una singola richiesta e deve decidere in millisecondi se eseguirla subito, posticiparla o bloccarla. Diventa fisicamente impraticabile (per ragioni di congestione e latenza) l'idea di mantenere persistentemente in memoria viva il grafo, aggiornarlo inserendo dinamicamente nuovi nodi per ogni millisecondo, e lanciare la routine di verifica topologica dell'aciclicità ad ogni singola impercettibile richiesta di input/output.
+    \item \textbf{L'illusione della Commit-Proiezione}: Come accennato nel preambolo, l'intera dottrina algebrica della CSR si fonda tacitamente sulla comoda ipotesi riduttiva della "commit-proiezione", ossia l'assunto irreale che nessuna transazione vada in errore o venga annullata (abortita). Ma "le transazioni possono fallire". Il fallimento asincrono di una transazione, che sfonda nel campo del controllore dell'affidabilità, manda in frantumi la validazione effettuata staticamente dal grafo. Ad esempio, se si trascura la possibilità di fallimento, un sistema CSR potrebbe ammettere incroci temporalmente leciti ma che, a fronte di un \texttt{abort} improvviso, esporrebbero inesorabilmente e drammaticamente il sistema alla piaga delle "letture sporche" (se $t_i$ legge i dati di $t_k$, e $t_k$ fallisce prima del commit dopo che $t_i$ ha già divulgato le informazioni).
+\end{enumerate}
+
+La conclusione tecnologica e industriale è inappellabile: l'approccio astratto dei grafi topologici viene relegato all'analisi. In pratica, "si utilizzano tecniche" protocollari ingegnerizzate (hardware e software) che, imponendo vincoli operativi rigidi a livello di risorse, fungono da "guardrail" e \textbf{garantiscono organicamente e meccanicamente la conflict-serializzabilità come risultato derivato, senza dover in alcun modo costruire o calcolare il grafo on-the-fly, e svincolandosi per di più dalla falsa ipotesi della commit-proiezione}. Le due grandi famiglie tecniche utilizzate per questo scopo nei RDBMS planetari sono il \textbf{2PL (Two-Phase Locking)} e il protocollo timestamp (implementazione del meccanismo "multiversion").
+
+\section{Il Paradigma Fisico: Locking e Incompatibilità}
+
+L'essenza filosofica per incatenare le anomalie e giungere a una schedulazione pulita risiede nell'impiego massivo di "Lock" (lucchetti temporanei).
+Il "Principio" fondante stabilisce che l'utilizzo di una risorsa (l'accesso ai dati o ad oggetti) deve essere strettamente e gelosamente controllato dal sistema al fine primario di evitare gli aggiornamenti indesiderati e caotici.
+Questa supervisione introduce leggi di mutua esclusione basate su postulati prestabiliti di compatibilità:
+\begin{itemize}
+    \item L'atto di leggere una risorsa è strutturalmente e categoricamente "incompatibile" con l'atto di scriverci sopra. Una sovrapposizione genererebbe un abominio logico.
+    \item Di contro, diverse letture pure (Read-Read), eseguite contemporaneamente da più utenti e che si limitano a consultare, sono del tutto "compatibili" e tollerate tra di loro, in quanto non modificano il tessuto del database.
+\end{itemize}
+
+Il motore transazionale declina questi vincoli imponendo l'obbligo contrattuale secondo cui \textbf{ogni singola operazione (DML) debba sempre e per forza essere preceduta nel tempo da una formale e preventiva "richiesta di lock"}. Questa richiesta è lo strumento per evitare l'intersecarsi caotico o la contestualità nociva di letture e alterazioni attive:
+\begin{itemize}
+    \item \textbf{Lock in Lettura}: Ogni comando applicativo di lettura è tassativamente preceduto dal comando \texttt{r\_lock} (identificativo di un lock di tipo "condiviso" da più transazioni affini e non invasive) e deve essere concluso formalmente con un rilascio \texttt{unlock}.
+    \item \textbf{Lock in Scrittura}: Ogni comando volto a impartire una scrittura è tassativamente preceduto dal prepotente comando \texttt{w\_lock} (identificativo di un lock di tipo "esclusivo", che può essere assegnato a una e una sola transazione dispotica) ed è seguito in coda dall'\texttt{unlock} per lo sgombero del privilegio.
+\end{itemize}
+Sorge la casistica ibrida: qualora una singola transazione necessiti dapprima di leggere un oggetto e, contestualmente nel prosieguo del calcolo, scriverlo, il DBMS offre due vie: o si richiede per prudenza fin da subito un pesante \texttt{w\_lock} esclusivo, o, con maggiore scaltrezza programmatica, si acquisisce prima un leggero \texttt{r\_lock} condiviso e, in prossimità della modifica imminente, si avanza una supplica per un "lock upgrade" verso il livello esclusivo.
+
+\subsection{Tavola dei Conflitti e Gestione delle Attese (Lock Manager)}
+Il modulo esecutore per eccellenza preposto all'applicazione pratica è il "Lock Manager". Esso agisce come un impiegato che riceve incessanti richieste d'uso dalle transazioni, e, in base al suo registro e alla compatibilità assiomatica incrociata, delibera un rigido verdetto di accettazione ("accoglie") o respingimento ("rifiuta").
+
+Queste decisioni binarie non sono estemporanee, ma formalizzate nella ineluttabile \textbf{"Tavola dei Conflitti"}. La matrice contrappone lo stato attuale di impiego in cui verte la risorsa desiderata contro la natura specifica della nuova richiesta inoltrata dal client:
+
+\begin{center}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Richiesta $\downarrow$ / Stato $\rightarrow$} & \textbf{free (libera)} & \textbf{r\_locked (in lettura)} & \textbf{w\_locked (in scrittura)} \\
+\hline
+\textbf{r\_lock (condiviso)} & OK / diviene r\_locked & OK / resta r\_locked & NO / resta w\_locked \\
+\hline
+\textbf{w\_lock (esclusivo)} & OK / diviene w\_locked & NO / resta r\_locked & NO / resta w\_locked \\
+\hline
+\textbf{unlock} & (gestione anomala) & OK / dipende (contatore) & OK / diviene free \\
+\hline
+\end{tabular}
+\end{center}
+
+Il Lock Manager traccia tutto orchestrando silenziosamente una complessa e massiccia "tabella dei lock" allocata in memoria temporanea RAM. Nel caso dei lock condivisi (\texttt{r\_locked}), poiché sono concessi in multiproprietà, il gestore attiva e mantiene aggiornato un "contatore" matematico che enumera con esattezza il numero dei "lettori" simultanei; il vincolo di prigionia sulla risorsa è considerato finalmente estinto, rilasciato ed \texttt{unlock}ato \textit{solo} nel frangente in cui l'operazione di decremento porta il contatore della folla di lettori esattamente a scendere fino a zero.
+
+\textbf{Il Meccanismo del Timeout e della Coda:}
+Se il verdetto generato dalla tavola risulta essere negativo ("NO", la risorsa è occupata o concessa in blocco), la transazione richiedente non viene terminata e gettata via, ma viene formalmente e bruscamente arrestata e "posta in attesa" in una coda invisibile (sospensione o sleep).
+
+Il periodo di quarantena nella coda non è tuttavia infinito. Ad ogni richiesta inevasa di lucchetto, l'architettura relazionale applica in automatico una timer-bomba: il cosiddetto "Timeout" (un parametro di configurazione indicante il tempo soglia e massimo di attesa). Il fluire del timer stabilisce due ipotetici scenari per la transazione paralizzata:
+\begin{enumerate}
+    \item La risorsa contesa improvvisamente si libera o va in \texttt{unlock} da parte degli occupanti storici, prima dello scoccare inesorabile del timeout. Il lock manager si risveglia e la transazione "può acquisire" il privilegio di lucchetto tanto agognato e proseguire il calcolo applicativo (è specificato il termine "può" anziché "acquisisce certamente", in quanto il sistema potrebbe dover dirimere priorità, considerando che nella medesima coda ci potrebbero essere decine di "altre transazioni in attesa" assembrate simultaneamente per l'accaparramento).
+    \item Il tempo limite e cronometrico di scadenza del "timeout" scocca senza che la liberazione si sia materializzata in modo propizio. Il gestore, in quanto implacabile regolatore di congestione, deduce e decreta il fallimento, e la transazione in coda viene impietosamente stroncata (abortita). Qualora fosse strategica, essa potrebbe eventualmente "essere rilanciata" da zero dal codice, seppur questa prassi di retry incondizionato resti vincolata a un'esclusiva "scelta applicativa" demandata all'intelligenza del client di programmazione.
+\end{enumerate}
+
+\section{Il Fallimento del Lock Puro e la Genesi del Protocollo 2PL}
+
+La dotazione e disseminazione dei lock descritta precedentemente non possiede, singolarmente presa, la proprietà alchemica di risanare le anomalie. Un utilizzo naif di blocchi \texttt{w\_lock} e rilasci \texttt{unlock}, seppur proteggendo gli accessi millimetrici e localizzati alle celle, non argina il cancro del Lost Update.
+
+"I lock da soli non bastano".
+Si riproduca lo schedule infetto della perdita di aggiornamento, adornandolo ora, fittiziamente, con i soli lock elementari:
+\begin{align*}
+    t_1&: \text{rlock}_1(x) \\
+    t_1&: r_1(x) \\
+    t_1&: x = x - 1000 \\
+    t_1&: \text{unlock}_1(x) \\
+    t_2&: \text{rlock}_2(x) \\
+    t_2&: r_2(x) \\
+    t_2&: x = x - 1000 \\
+    t_2&: \text{unlock}_2(x) \\
+    t_1&: \text{wlock}_1(x) \\
+    t_1&: w_1(x) \\
+    t_1&: \text{unlock}_1(x) \\
+    t_1&: \text{commit} \\
+    t_2&: \text{wlock}_2(x) \\
+    t_2&: w_2(x) \\
+    t_2&: \text{unlock}_2(x) \\
+    t_2&: \text{commit}
+\end{align*}
+Seppur il Lock Manager abbia governato l'alternanza assecondando le richieste (avendo $t_1$ e $t_2$ educatamente rilasciato i rispettivi lucchetti \texttt{rlock} non appena terminata la lettura locale, e avendo rispettato diligentemente il turno durante la richiesta del \texttt{wlock} non interscambiabile), l'architettura logica ha fallito la sua pretesa e "il problema resta". Non è cambiato nulla. La lettura asincrona sfalsa i calcoli che produrranno una scrittura omicida e disgiunta in un punto di non ritorno, divorando la transazione avversaria.
+
+Per tramutare il modesto strumento del lock in un'infallibile armatura di serializzabilità, il sistema ingegneristico globale innalza il \textbf{Locking a Due Fasi (2PL - Two Phase Locking)}.
+Il 2PL erige il suo protocollo non solo richiedendo in modo ossessivo la protezione con lock prima di tutte le manipolazioni (letture/scritture), ma introducendo d'imperio un dogma monolitico e comportamentale, un "vincolo sulle richieste e i rilasci".
+Il postulato assoluto e inossidabile del 2PL statuisce che: \textbf{una transazione, dopo aver iniziato le pratiche di rilascio cedendo o abbandonando un primissimo lock pre-acquisito, diviene categoricamente non abilitata ad acquisirne di nuovi o ulteriori}.
+
+Da tale restrizione discende il fatto che l'intera esistenza della transazione debba spaccarsi fisicamente e visivamente in "due fasi" non sovrapponibili e non mescolabili:
+\begin{itemize}
+    \item \textbf{Prima Fase (Fase Espansiva / Acquisizione)}: La transazione opera acquisendo, accaparrandosi e monopolizzando a cascata tutti i lucchetti relazionali di cui il suo calcolo potrebbe aver bisogno. Lo stato della transazione "cresce" in possessione.
+    \item \textbf{Seconda Fase (Fase di Ritiro / Rilascio)}: Al momento in cui il processo espleta un qualsiasi comando di rilascio \texttt{unlock}, la fase di crescita è chiusa irreversibilmente. La transazione scivola nel baratro della seconda fase, e, da quel nanosecondo, deve ritirarsi, spogliarsi di poteri e restringere progressivamente e docilmente le sue pretese o, semplicemente, scappare senza più intercedere col gestore, ma mai domandare nuovi presidi.
+\end{itemize}
+
+Questo protocollo comportamentale garantisce meccanicamente la celeberrima conflict-serializzabilità. Il 2PL incarna il modello della "condizione sufficiente": esso certifica irrevocabilmente che \textbf{ogni e qualsiasi schedule ammesso all'esecuzione dal rigore del 2PL è, per definizione e con matematica certezza, conflict-serializzabile (CSR)}.
+
+\subsection{2PL vs CSR: L'Inclusione Insiemistica}
+Al pari del rapporto tra CSR e VSR, l'insiemistica definisce una demarcazione: \textit{Ogni schedule certificato 2PL è in CSR, ma non necessariamente o obbligatoriamente è vero il processo viceversa}.
+Il controesempio per testare la "non necessità" del protocollo 2PL si materializza analizzando:
+$$S_{viola}: r_1(x) \ w_1(x) \ r_2(x) \ w_2(x) \ r_3(y) \ w_1(y)$$
+
+Se sottoponessimo tale sequenza $S_{viola}$ a un banale solutore o grafo dei conflitti appureremmo con serenità che esso, sotto l'esclusivo profilo matematico, si inquadra e si qualifica come sanamente e aciclicamente \textit{Conflict-serializzabile}.
+Tuttavia, nonostante la purezza dell'aciclicità, un vero e proprio "scheduler 2PL hardware/software NON lo può produrre né elaborare mai".
+Perché uno scheduler impazzirebbe bloccandolo sul nascere? Osservando le propaggini del calcolo per la transazione $t_1$, notiamo che in apertura $t_1$ effettua $r_1(x)$ e $w_1(x)$, e poi cede momentaneamente la scena a $t_2$. Avendo $t_2$ letto e scritto $x$ (attraverso le azioni $r_2(x)$ e $w_2(x)$), vuol dire per logica ferrea che la transazione madre $t_1$ aveva proceduto al "rilascio e cessione dei lock su $x$" permettendo il subentro di $t_2$. Ed ecco consumarsi il tabù del dogma 2PL: essendosi denudata di un lucchetto su $x$, $t_1$ è formalmente precipitata nella fase irrevocabile di "rilascio". Purtroppo, a fine corsa dello schedule, subentra imprevedibilmente un'istruzione $w_1(y)$: la transazione $t_1$ tenta subdolamente di "acquisire un nuovo strato lock" esclusivo verso l'oggetto $y$. Questa richiesta post-rinuncia infrange in maniera rovinosa il 2PL ed il controllore rigetterebbe l'intero blocco abortendo e stroncando $t_1$ (Viola 2PL).
+
+\subsection{Il Limite Mortale: 2PL e Stallo (Deadlock)}
+L'impiego pervasivo della prima fase esplosiva e accumulatrice di lucchetti indotta dal Two-Phase Locking nasconde un'insidia algoritmica mortale. Il protezionismo estremo genera il fenomeno delle \textbf{"attese incrociate"}: un imbuto logico dove due o plurime transazioni isolate detengono gelosamente e in modo asincrono una risorsa (rifiutandosi dogmaticamente di rilasciarla per non entrare anzitempo nella Fase due del 2PL), e, simultaneamente, anelano e "aspettano passivamente l'acquisizione in blocco della risorsa precedentemente e fatalmente detenuta e bloccata dall'altra concorrente".
+
+Questo stallo perpetuo o paralisi inestricabile è denominato \textbf{Deadlock}.
+Esempio d'intercettazione disastrosa:
+\begin{align*}
+    t_1&: r(x) \quad \text{e} \quad w(y) \\
+    t_2&: r(y) \quad \text{e} \quad w(x)
+\end{align*}
+Avviando questo schedule con un parser: $t_1$ si prenota con \texttt{r\_lock1(x)} ed egualmente ma in differita $t_2$ avanza \texttt{r\_lock2(y)}. $t_1$ invoca il \texttt{w\_lock1(y)} per scrivere su $y$, subendo l'esito avverso dal Manager per l'occupazione preesistente di $t_2$. La transazione $t_1$ è spedita nella coda dell'attesa ("timeout"). Inconcepibilmente anche $t_2$ procede alla chiamata \texttt{w\_lock2(x)}, cozzando contro l'egemonia preesistente di $t_1$. Anche $t_2$ sosta in attesa. $t_1$ aspetta in ginocchio che $t_2$ rilasci, ma $t_2$ aspetta altrettanto in ginocchio e con ostinazione lo sblocco di $t_1$. L'impasse si tramuta in blocco silente di server: un cataclisma architetturale.
+
+Il DBMS, appurata l'anomalia, interviene chirurgicamente avvalendosi delle tre macrotecniche per la "Gestione dello Stallo" (ove lo stallo non è altro che un diabolico ciclo geometrico impresso in un grafo ausiliario, il "grafo delle attese", in cui il nodo ricalca la transazione oppressa, mentre l'arco funge da traccia dell'attesa):
+\begin{enumerate}
+    \item \textbf{Timeout}: Come precedentemente illustrato, lo scadere asettico dell'orologio miete la vita di una delle due concorrenti. Il problema infame del timeout è la calibratura del "trade-off" per la scelta e l'estensione dell'intervallo ideale (intervalli brevi decimano transazioni altrimenti fluide, intervalli spropositati infliggono tempi biblici agli utenti incatenati).
+    \item \textbf{Rilevamento strutturato (Detection)}: La mente diagnostica del motore esegue periodicamente asettiche elaborazioni in background (grafi ciclici) a "ricerca di cicli" nel grafo delle attese pendenti, per snidare e colpire i loop bloccati.
+    \item \textbf{Prevenzione profilattica dello stallo (Prevention)}: Strategia draconiana attuata sopprimendo a priori in forma preventiva l'"uccisione" e decapitazione rapida di eventuali transazioni tacciate di essere potenzialmente "sospette", ancor prima di palesare la chiusura dell'anello. Metodo brutale, soggetto ad un noto margine d'errore (può facilmente "esagerare" sprecando buone iterazioni).
+\end{enumerate}
+
+\section{Locking a Due Fasi Stretto (S2PL) e Fine dell'Utopia}
+
+Un'ulteriore complicazione, affrontata dai grandi calcolatori che impiegano 2PL, ricade nel rischio delle "Letture Sporche", non scongiurate dal rilascio immediato o asincrono. Si ricordi il monito che la "commit-proiezione" non sussiste, le transazioni purtroppo falliscono ("rimuoviamo l'ipotesi di commit-proiezione").
+Se $t_1$ cede un lock in corso d'opera (legittimamente concesso nella sua sacra Fase 2 di rilascio imposta dal protocollo 2PL) per via di una sbloccante elaborazione completata e, dopo pochi cicli clock, la sfortunata va drammaticamente incontro a un tracollo o fallimento irreversibile causato da altre anomalie logiche periferiche o da timeout, la cessione prematura del lock provocherà l'anomalia aberrante se, nel medesimo frattempo, una fortunata $t_2$ aveva agguantato o "andata in commit" proprio quei frammenti e dati falsi scritti poc'anzi da $t_1$ (e veicolando e dischiudendo, orrore degli orrori, la comunicazione errata all'universo e agli I/O "all'esterno").
+
+Come risolvere l'equazione per evitare la piaga delle letture sporche indotte dai rimasugli? La contromisura dogmatica è l'impedimento radicale per ogni client: "impedendo il commit e la perversa divulgazione di comunicazione all'esterno" di qualsivoglia dato in pendenza, finché la transazione garante che ha partorito quei parametri non giunga e non sia andata effettivamente ed integralmente nel paradiso del commit.
+
+La soluzione e derivazione algoritmica "semplice e diretta" che scongiura la nefandezza del dato fantasma si riassume nell'assunto lapidario "non fare o imporre mai di leggere e assorbire dati sporchi". Questa preghiera e ingiunzione programmatica si formalizza architetturalmente nell'estensione del protocollo principe, battezzando ed originando lo strumento del \textbf{Locking a due fasi stretto (Strict 2PL o S2PL)}.
+Il paradigma S2PL recepisce il dictat base del progenitore (il binomio fase uno/fase due) per innestarvi un fendente limitativo di spaventosa rigidità: \textbf{"i lock (specie in stesura esclusiva o scrittoria) possono inequivocabilmente essere liberati o rilasciati SOLO, SOLTANTO ED ESCLUSIVAMENTE ad opera chiusa, ovvero in maniera contemporanea o susseguente al consolidamento dello shutdown o approdo finale imposto per commit o abort"}.
+
+La stratificazione gerarchica delle proprietà del rigore dei grafi, culminante nell'anello S2PL, riproduce la seguente matrioska insiemistica:
+L'universo totale di tutti i possibili mischiati \textbf{Schedule} abbraccia ed ingloba il reame protetto ma incalcolabile per tempi CPU, ovvero lo \textbf{Schedule VSR}. Il campo VSR, come acclarato, abbraccia ed ospita le file controllabili colla teoria del grafo dei conflitti (\textbf{Schedule CSR}). All'interno o per sineddoche all'intorno della sfera matematica CSR germoglia e attecchisce l'insieme ingegneristico di programmazione in hardware denominato \textbf{Schedule 2PL}. Quest'ultimo incuba rigidamente al proprio interno la cruna dell'ago perfezionata dei sistemi attuali contro l'infezione della ghost-read, lo \textbf{Schedule S2PL}. Infine, l'occhio cieco ristretto ed impervio dell'immacolato alveo senza incroci o parallelismi: lo specchio puro degli \textbf{Schedule Seriali} chiude il diagramma.
+
+\section{Integrazione Complessa: Granularità, Isolamento Reale e Lock di Predicato}
+
+Non vi è reale comprensione informatica se il modello teorico 2PL Stretto non è integrato nell'ecosistema globale di persistenza delle moderne architetture RDBMS.
+
+La scalabilità di un DBMS pretende che il Lock non sia limitato a un'istanza molecolare, bensì esteso con "diversi livelli di granularità e gerarchie". Un nodo lock in produzione ingegneristica non incatena genericamente "la lettera x", bensì può agire progressivamente o estensivamente sull'astrazione strutturata di: \textit{un'intera immensa base di dati, un plico tabelle interconnesse, frammenti contigui di volume, raggruppamenti multipli di blocchi disco magnetici sino a degenerare nella finezza chirurgica imposta dalla singola minuscola riga o "ennuple"} registrate nella tabella. L'esistenza di siffatta "gerarchia fra le varie granularità" è il volano per arginare le carenze hardware: "Perché?" ci si espande? Semplice pragmatismo di performance.
+
+L'applicazione e il bloccaggio condotto con "granularità grossa" (e.g. blocco di una tabella intiera) possiede lo spregevole difetto di immobilizzare inibitoriamente moltissime preziose sotto-risorse (saturando lo scheduler), tuttavia la "granularità fine" (sfruttata ad oltranza bloccando record per record a colpi decuplicati di timeout) sversa e richiede computazionalmente al Lock Manager in CPU l'allocazione massiva e il calcolo ingestibile di una galassia e miriade incalcolabile di innumerevoli e piccoli "molti lock", rischiando di annientare la memoria vitale in stallo e tracking index.
+I sistemi eludono la morsa del caos ingegnerizzando dinamici e reattivi "meccanismi di escalation". Ad esempio logico: lo scheduler in back end, allorquando monitora che le chiamate sfociano e "se ho accumulato o asservito a lock o troppi lock mirati per una pletora estesa di ennuple adiacenti per una data singola transazione, autonomamente recide i blocchetti individuali per compiere o passare fluidamente verso l'istituzione e promulgazione globale di un lock univoco di maglia più tozza, che imprigioni l'intera macro-relazione, agevolando l'albero interno di log".
+
+\subsection{Implementazione Pratica dell'Isolamento e Inserimento Fantasma}
+Il banco di prova ultimo per il controllore 2PL risiede nella trasposizione e nell'attivazione a runtime dei Livelli SQL:1999 summenzionati (Read Uncommitted, Read Committed, Repeatable Read, Serializable).
+
+Una precondizione inaudita per l'integrità strutturale: a prescindere dal livello di visibilità scelto per gli sguardi o per la consultazione utente, \textbf{sulle e per le Scritture (Write Operation) "si ha sempre l'imperioso obbligo protocollare del 2PL stretto" in qualsivoglia architettura seria e relazionale, inibendo in senso lato la commutazione del rilascio anzitempo}. (Tuttavia "nonostante ciò che dicono le favole in svariati manuali generici", tale 2PL sulle scritture non esime e non previene matematicamente l'atroce e tragica "perdita d'aggiornamento": "la sovrascrittura si evita unicamente e solo se le transazioni in scrittura assurgono ed esigono perentoriamente all'interno dello script applicativo il dispiegamento del livello massimo di isolamento logico serializzabile").
+
+Esaminiamo la modulazione meccanica per i Lock a fine lettorio (Read):
+\begin{itemize}
+    \item \textbf{read uncommitted}: L'incuria del "nessun lock in lettura", disdegnando la regola elementare e non palesando timore alcuno: così operando si permette che l'algoritmo irrompa ciecamente nei dati volatili (e quindi ignora e non calcola, né tantomeno "rispetta i lock" severi e ostili apposti e lasciati ad ammuffire dagli "altrui" processori attivi).
+    \item \textbf{read committed}: S'impone l'apposizione cautelare dell'effimero "lock in lettura" (e, in tal modo, incrociando i binari con la tavola compatibilità, si blocca fermamente la transazione, in quanto "rispetta reverenzialmente i lock opposti in scrittura" in corso d'opera attivati). Ma, attenzione letale, il lucchetto è sganciato all'istante o rimosso "senza ottemperare la prigionia al 2PL", disinnescando o sbloccando repentinamente dopo la prelievo del valore la morsa o lock e scappando verso altra istruzione asincrona.
+    \item \textbf{repeatable read}: Il salto nell'isolamento robusto è dettato dall'introduzione dogmatica del famigerato "2PL stretto, imposto a sorpresa e severamente anche per le esecuzioni in fiera lettura, corredandolo o abbinandolo a costrizioni lock applicati perennemente sui dati puntuali e sulle tuple prelevate".
+\end{itemize}
+
+Ma il castello e l'architettura 2PL non possono contenere il baratro metafisico dello spaventoso \textbf{"Inserimento Fantasma"} o delle anomalie indotte dalle interrogazioni spaziali.
+Si riprenda il sistema di prenotazione: se la query impartita conta massivamente "i posti disponibili per il volo X" ricorrendo alla decodifica di un costrutto aggregativo \texttt{select ... from ... dove condizione parametrica: volo=X}, un lock 2PL convenzionale, apposto stoicamente sulle ennuple esistenti e bloccate con valore X, non sortirà preclusione o scudo alcuno per il fatto inaudito che un "aggiungi o un aereo più capiente" sfoci per inserire e far piovere materialmente dal nulla nuove tuple o record inediti estranei al reame del lock precedente. "I lock visti finora non bastano, perché materializzano o ci sono fioriture di record nuovi, mai incatenati da un check".
+
+Il rimedio architetturale ultimo del massimo livello formale \textbf{serializable} trascende e devia dal controllo di tuple: non è sufficiente un 2PL Stretto, occorre innestarvi in combinazione sinergica e fatale il concetto assoluto di "Lock di Predicato". Il controllore decreta un congelamento algoritmico o "Lock di predicato innestato brutalmente sulla condizione astratta \texttt{volo=X}". Il controllore, applicando tale regola preclusiva, "impedisce materialmente e fisicamente l'accesso sconsiderato per qualsiasi operazione mutante e di scrittura" e su "tutti, perennemente i dati incogniti che astrattamente soddisfano logicamente le clausole o il predicato matematico e relazionale usato o sfruttato originariamente nella fase d'apertura o vettoriale di una lettura aggregata".
+
+L'implementazione o concretizzazione algoritmica di queste astrazioni è devastante e ondivaga:
+"Come si implementano operativamente i lock di predicato nel disco fisico?"
+\begin{itemize}
+    \item Nel \textbf{Caso peggiore} (assenza del file strutturato B-Tree), la clausola si propaga e impantana la granularità bloccando l'incursione di lock mostruoso "sull'intera relazione (tabella) e dominio", bloccando il traffico dell'infrastruttura.
+    \item Se tuttavia e fortunatamente "esiste un indice strutturale, b-tree, o cluster orientato sugli specifici attributi relazionali menzionati e setacciati nella condizione \texttt{where}", il lock mutante intercetterà i settori e si aggancerà in modo snello e letale, ancorandosi "sull'indice stesso".
+\end{itemize}

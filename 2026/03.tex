@@ -1,0 +1,185 @@
+\chapter{Il Concetto di Recovery: Ripristino e Salvaguardia dei Dati}
+
+\section{Obiettivi e Necessità del Recovery (Ripristino a Caldo)}
+
+Il concetto focale e la vera essenza della gestione dell'affidabilità si sostanziano nella procedura di \textbf{recovery} (o warm restart, ripresa a caldo). Lo scopo primario, imprescindibile e fondamentale del gestore dell'affidabilità è quello di garantire meccanicamente che il contenuto complessivo della base di dati sia logicamente e fisicamente corretto ogniqualvolta si verifichi un evento traumatico (come un guasto software, un crash o una caduta di tensione elettrica). Questa garanzia di correttezza è richiesta anche durante le fasi ordinarie di accensione del sistema (startup) a seguito di un normale spegnimento (shut down).
+
+La correttezza dello stato della base di dati post-guasto (o allo startup) si articola in due corollari speculari:
+\begin{enumerate}
+    \item Lo stato finale archiviato nei dischi \textbf{non deve} contenere alcuna traccia o alterazione che sia stata prodotta da transazioni lasciate in sospeso o interrotte a metà dell'opera.
+    \item Tutte le transazioni che, prima del crash, erano regolarmente andate a buon fine (registrando il proprio \textit{commit} in memoria stabile) debbono essere state portate a definitivo compimento e i loro effetti devono risultare incontrovertibilmente impressi nella base di dati.
+\end{enumerate}
+
+La complessità sorge dal fatto che le modalità di conclusione di una sessione di lavoro non sono sempre predicibili o "controllabili" a priori. Per il motore del database, una chiusura improvvisa determinata da un crash di sistema è indistinguibile da un arresto forzato. Per via di tale intrinseca incertezza, il paradigma architetturale impone che, all'atto di ogni riavvio o startup, il DBMS sia programmato per dubitare dello stato in cui versa la memoria di massa ed effettui, di default, una rigorosa verifica esplorativa per controllare l'eventuale presenza di disallineamenti.
+
+\section{Algoritmo di Recovery Base: Approccio Teorico}
+
+In via teorica, si potrebbe immaginare un metodo risolutivo ingenuo e fortemente inefficiente. Scorrendo l'intera storia del database sin dalle sue origini, per ogni singola transazione mai registrata:
+\begin{itemize}
+    \item Se la transazione è andata in \textit{commit} (il che significa che esiste in modo inequivocabile un record di commit associato sul file di log), il sistema esegue forzatamente e ciecamente il \textit{redo} (rifacimento) di tutte le azioni di quella transazione, assicurandosi che i dati finali siano stati riversati su disco.
+    \item Se la transazione è stata esplicitamente annullata tramite un comando di \textit{rollback} (abort), il sistema ignora il blocco e non fa assolutamente niente, confidando che l'utente o il gestore avesse già rimosso le tracce al momento del suicidio.
+    \item In ogni altro caso alternativo (altrimenti), ovvero in presenza di transazioni pendenti per le quali non vi è né commit né rollback, il sistema esegue tassativamente l'\textit{undo} (disfacimento) di tutte le rispettive azioni, bonificando il disco dai frammenti.
+\end{itemize}
+
+Questo approccio intuitivo si formalizza nel classico \textbf{Algoritmo di Recovery Base}, che si snoda tipicamente in tre macro-passaggi sequenziali (identificati come passi 0, 1 e 2):
+
+\textbf{Fase 0 (Fase di Analisi e Classificazione):}
+Si percorre integralmente il file di log andando all'indietro (a ritroso, dall'evento più recente verso il passato). L'obiettivo è individuare le transazioni e smistarle in due insiemi ben definiti: l'insieme UNDO (transazioni da disfare) e l'insieme REDO (transazioni da rifare). Se durante la lettura a ritroso si incontra un record di \textit{commit}, l'ID della transazione viene eletto per l'inserimento nell'insieme REDO. Se, viceversa, si riscontrano tracce di azioni (insert/update/delete) per una determinata transazione di cui non si è trovato traccia né di \textit{commit} né di \textit{rollback} esplicito, quella transazione viene declassata e inserita nell'insieme UNDO.
+
+\textbf{Fase 1 (Fase di UNDO):}
+Procedendo rigorosamente a ritroso nel log, il sistema esegue materialmente il comando di "disfa" su tutte le azioni che appartengono alle transazioni precedentemente accatastate nell'insieme UNDO.
+
+\textbf{Fase 2 (Fase di REDO):}
+Una volta ripristinato il passato, si inverte il senso di marcia. Procedendo in avanti (dal punto più antico verso la fine), il sistema "rifà" o sovrascrive tutte le azioni delle transazioni presenti nell'insieme REDO, riaffermando gli aggiornamenti validi.
+
+\subsection{Ottimizzazione Architetturale dell'Algoritmo}
+Dal punto di vista dell'ingegneria del software, eseguire la fase 0 come passaggio isolato rappresenta uno spreco computazionale. È prassi consolidata fondere il Passo 0 direttamente all'interno del Passo 1 (lettura a ritroso), arrivando a una procedura bifase ottimizzata:
+
+\begin{enumerate}
+    \item \textbf{Scansione a ritroso (dalla fine verso l'inizio):} Per ogni record analizzato nel log:
+    \begin{itemize}
+        \item Se è un \textit{commit}, si aggiunge dinamicamente l'identificativo della transazione all'insieme REDO.
+        \item Se è un \textit{rollback}, si aggiunge l'identificativo all'insieme temporaneo RB (Rollback).
+        \item Se si incontra un record operativo (un'azione su oggetti) e l'ID della transazione responsabile non figura ancora né nell'insieme REDO né nell'insieme RB, significa che è un'operazione orfana: si procede in tempo reale a disfare l'azione applicando il valore di Before State.
+    \end{itemize}
+    \item \textbf{Scansione in avanti (dall'inizio verso la fine):} Per ogni record analizzato nel log:
+    \begin{itemize}
+        \item Se il record è un'azione appartenente a una transazione che era stata etichettata e inclusa nell'insieme REDO, si procede a rifare attivamente l'azione applicando il valore di After State.
+    \end{itemize}
+\end{enumerate}
+
+\textit{Nota Architetturale:} Si potrebbe obiettare che rifare e disfare azioni temporalmente sfasate crei apparenti incoerenze formali se più transazioni diverse operano sullo stesso medesimo dato. Tali conflitti (dirty writes) sono categoricamente evitati e prevenuti a monte dalle ferree barriere di isolamento erette dal modulo del controllo di concorrenza, che assicura che una risorsa in transizione sia protetta da lucchetti (lock) e non possa generare sovrascritture anomale.
+
+\section{Il Costo del Recovery e il Checkpoint Quiescente}
+
+L'algoritmo di base discusso presenta un "costo" drammaticamente insostenibile nei sistemi reali. Esso obbliga a compiere la lettura integrale di tutto l'archivio sequenziale del log (per ben due volte) e, soprattutto, a scorrere all'indietro fino alle origini primordiali del database, comportando la ripetizione e l'annullamento di una moltitudine sterminata e inutile di operazioni storiche ormai consolidate.
+
+L'interrogativo ingegneristico diviene quindi: \textit{Come si può rendere questa ripresa molto più efficiente?} La risposta risiede nell'evitare di andare "troppo indietro" con la lettura del file. Occorre un marker, un punto di riferimento sicuro che garantisca al gestore di potersi fermare a ritroso, qualora si abbia la certezza inossidabile che, da quel punto all'indietro, non ci siano più buffer o pagine sporche non salvate fisicamente sul disco e, simultaneamente, non ci siano più vecchie transazioni vaganti o lasciate a metà.
+
+Questa necessità si formalizza nel meccanismo del \textbf{Checkpoint inattivo (o "quiescente")}.
+
+Il checkpoint inattivo funge da barriera temporale artificiale. La sua attuazione periodica può essere paragonata alla manovra estrema di una "chiusura dei conti" di fine anno in un'amministrazione pubblica o aziendale. In questa metafora, per effettuare una revisione pulita, a partire da un mese come fine novembre, gli uffici smettono di accettare qualsiasi nuova richiesta dai cittadini e dedicano tutto il mese di dicembre per smaltire e concludere tutte quelle pratiche che erano state avviate in precedenza, prima di poter finalmente riaprire gli sportelli e accettarne di nuove a metà gennaio.
+
+\subsection{Meccanica del Checkpoint Quiescente}
+L'attuazione di un checkpoint quiescente nel DBMS è un processo bloccante e radicale, che si svolge attraverso i seguenti passaggi tassativi:
+\begin{enumerate}
+    \item Si interrompe bruscamente e totalmente l'accettazione di ogni nuova transazione in ingresso da parte degli applicativi.
+    \item Si aspetta passivamente e pazientemente la naturale conclusione logica di tutte le transazioni che erano già attive e in esecuzione nel momento del blocco.
+    \item Raggiunto lo svuotamento delle attività, il gestore del buffer forza d'imperio la scrittura sincrona su disco fisico di tutte le "pagine sporche" (dirty pages) transitate nel buffer, cristallizzando lo stato.
+    \item Si inserisce a sigillo un record speciale di \textit{checkpoint} in fondo al log e se ne forza la scrittura in memoria stabile per sancire la conclusione della sincronizzazione.
+    \item Terminata la manovra, si sblocca il sistema e si riprende l'ordinaria accettazione di nuove transazioni.
+\end{enumerate}
+
+\subsection{L'Algoritmo di Recovery Ottimizzato (con Ckpt Quiescente)}
+L'impiego del checkpoint quiescente rivoluziona le prestazioni della ripresa a caldo limitando drasticamente la profondità della scansione.
+
+\begin{enumerate}
+    \item \textbf{Ricerca a ritroso interrotta:} Si procede dalla fine (l'ultimo record generato) andando a ritroso accumulando transazioni in REDO o RB e applicando gli UNDO. La grandissima differenza è che la corsa a ritroso \textbf{si arresta non appena viene incontrato il primo record di checkpoint quiescente}. Poiché quel checkpoint garantisce per definizione che al suo scoccare non vi fossero transazioni "a cavallo", spingersi oltre nel passato diviene superfluo.
+    \item \textbf{Ricerca in avanti ridotta:} Si ripercorre il log in avanti partendo \textbf{esattamente dal punto del checkpoint} fino alla fine del log, rifacendo ciecamente e solo le azioni pertinenti all'insieme REDO.
+\end{enumerate}
+
+\textbf{Commenti e Criticità:}
+L'evidente vantaggio del metodo quiescente consiste nel circoscrivere brutalmente il raggio di indagine: il recovery non deve mai più risalire all'inizio della storia del log, fermandosi confortevolmente all'ultimo checkpoint incontrato procedendo dalla fine. Pertanto, il salvataggio va indotto e scatenato abbastanza di frequente (ad intervalli regolari) allo scopo di ridurre enormemente la lunghezza temporale e computazionale delle operazioni di ripristino post-guasto.
+
+Risulta utile sottolineare che il marker di checkpoint viene tipicamente apposto in automatico dopo che un recovery ha concluso con successo le sue funzioni (per segnalare alle future esecuzioni che la base di dati, a quel punto preciso nel tempo, è pulita e corretta). Poiché lo startup, come già evidenziato, deve sempre avviare una routine di recovery esplorativa per cautela contro chiusure scorrette, in pratica la fase di startup sfocia sempre nell'emissione di un nuovo checkpoint di garanzia. Per prassi virtuosa, eseguire esplicitamente un checkpoint volontario anche prima del normale \textit{shutdown} agevola e semplifica infinitamente il compito del recovery allo startup successivo.
+
+Il difetto monumentale del checkpoint quiescente risiede tuttavia nel suo pesante impatto prestazionale: il blocco operativo derivante dal rifiuto di nuove transazioni e l'attesa dello svuotamento delle code attive introduce inaccettabili inefficienze in sistemi ad alta disponibilità (H24). Per applicazioni bancarie o di telecomunicazioni, un simile congelamento è impraticabile. Si è resa quindi necessaria una soluzione architetturale evoluta: "si può fare di meglio".
+
+\section{Il Checkpoint Non Quiescente (Dinamico)}
+
+Il superamento dei limiti di blocco si ottiene adottando il \textbf{Checkpoint Non Quiescente}. A differenza del predecessore, esso non impone un blocco prolungato per l'esaurimento delle transazioni, ma si configura come una sorta di rapida "fotografia istantanea". Lo scopo non è azzerare il carico, bensì "fare il punto" logico della situazione, registrando meticolosamente in un preciso istante $T_0$ un censimento delle transazioni correntemente attive e pendenti nel sistema. Dualmente, la mera non presenza di un ID transazionale all'interno della lista del checkpoint conferma tacitamente che quella specifica transazione o non è ancora mai iniziata (nascerà dopo $T_0$) oppure è già defunta e terminata prima di $T_0$.
+
+\subsection{Modalità Esecutiva del Ckpt Non Quiescente}
+La modalità base e più lineare per operare questa fotografia istantanea prevede pochissimi passi ad altissima reattività:
+\begin{enumerate}
+    \item Si applica un'interruzione di servizio microscopica: si sospende istantaneamente l'accettazione di ogni tipo di richiesta DML e transazionale (nuovi begin, scritture, letture, commit e abort).
+    \item Si rilevano, leggendo dalla tabella interna di sistema, gli ID di tutte le transazioni classificate come "in corso" (attive in quel nanosecondo).
+    \item Si invia un segnale di svuotamento (flush) per forzare la scrittura su disco di tutte le pagine sporche accatastate nel buffer. (In varianti ottimizzate per architetture No-UNDO, il sistema si limiterà a salvare selettivamente solo le pagine sporche pertinenti alle transazioni storicamente andate in commit).
+    \item Si compila e inserisce formalmente nel file di log il record speciale di checkpoint, arricchito strutturalmente con la lista (array) degli identificatori delle transazioni appena rilevate come attive. Si forza l'I/O verso il disco stabile.
+    \item Terminata l'operazione di trascrizione del censimento, si riaprono le porte e si riprende tempestivamente l'accettazione di nuove richieste.
+\end{enumerate}
+
+\subsection{Algoritmo di Recovery Evoluto (con Ckpt Non Quiescente)}
+Il fatto di aver scattato una fotografia asincrona senza obbligare il sistema ad attendere la fine delle operazioni comporta l'inevitabile esistenza di transazioni che "scavalcano" e rimangono a cavallo del record di checkpoint. Questo innalza la complessità dell'algoritmo di recovery in tre fasi:
+
+\textbf{Fase 1 (Ricerca e Classificazione a ritroso):}
+Si scandisce il log dalla fine fino all'incontro del primo record di checkpoint, distribuendo normalmente in REDO o RB, e contemporaneamente eseguendo le azioni di \textit{disfa} per le operazioni orfane (UNDO).
+
+\textbf{Fase 1-bis (Ricerca Estesa a ritroso):}
+Giunti al record di checkpoint e letta la lista dei censiti, ci si rende conto che alcune operazioni appartenenti a tali transazioni pendenti risalgono a tempi ben antecedenti il checkpoint. Occorre quindi proseguire l'indagine. L'estensione della scansione a ritroso non è infinita, ma si arresta chirurgicamente non appena viene incrociato il record di \textit{start} (begin) associato alla transazione anagraficamente "più vecchia" e longeva elencata nella lista del checkpoint. Durante questo scorrimento suppletivo, se l'operazione intercettata fa capo a una delle transazioni censite ma prive di garanzia REDO, le sue azioni continuano ad essere doverosamente disfatte (UNDO).
+
+\textbf{Fase 2 (Ricerca in Avanti per REDO):}
+Una volta ripristinato ogni frammento sporco, si inverte la rotta. Si ripercorre il file di log procedendo rigorosamente in avanti, ma a differenza del metodo quiescente, non si parte dall'antico \textit{start} più vecchio, bensì si può comodamente ripartire dal punto logico ove si era esteso il processo 1bis o (se le policy di salvataggio del buffer lo consentono) addirittura dal marker di checkpoint stesso. L'obiettivo resta invariato: scorrere in avanti e applicare il comando \textit{rifai} su tutte e solo le azioni riconducibili all'elenco delle transazioni assicurate nell'insieme REDO.
+
+\section{Esempio Pratico e Dettagliato di Ripresa a Caldo}
+
+Per padroneggiare compiutamente la dinamica dell'algoritmo su un checkpoint non quiescente, è imperativo analizzare un log tracciato, simulando le fasi manuali del motore di un DBMS a fronte di un crash distruttivo.
+
+Si consideri un log storico contenente 5 transazioni (da $T1$ a $T5$) e interagente su vari oggetti ($O1 \dots O6$), fino allo spezzarsi della catena per via di un fatale $Crash$.
+
+\textbf{Cronologia Lineare degli Eventi (dall'alto in basso):}
+1. $B(T1)$ e $B(T2)$ inizializzano le elaborazioni.
+2. $U(T2, O1, B1, A1)$ e $I(T1, O2, A2)$ eseguono manovre su $T2$ e $T1$.
+3. $B(T3)$ si unisce; subito dopo $T1$ esegue con successo il proprio $C(T1)$ (Commit di T1). $T1$ cessa di esistere formalmente.
+4. $B(T4)$ inizia. Seguono variazioni: $U(T3, O2, B3, A3)$ e $U(T4, O3, B4, A4)$.
+5. \textbf{Evento Cardine:} Il sistema lancia un checkpoint non quiescente: \textbf{$CK(T2, T3, T4)$}. Il censimento registra che $T1$ è morta, mentre $T2, T3$ e $T4$ sono quelle attive.
+6. Poco dopo, $T4$ va in commit: $C(T4)$.
+7. $B(T5)$ si iscrive. Seguono svariate modifiche su $T3$ e $T5$: $U(T3, O3, B5, A5)$, $U(T5, O4, B6, A6)$ e un delete $D(T3, O5, B7)$.
+8. \textbf{Evento anomalo:} $T3$ impone un Abort manuale, registrando $A(T3)$.
+9. $T5$ va in commit felicemente: $C(T5)$.
+10. $T2$ accenna un inserimento: $I(T2, O6, A8)$.
+11. \textbf{CRASH:} Il sistema cade prima che $T2$ possa pronunciare la sua chiusura.
+
+\subsection{Esecuzione della Fase 1: UNDO ed Estrapolazione Insiemi}
+Il gestore del recovery, riavviato post-crash, inizializza le strutture dati vuote: $UNDO=\{\}$, $REDO=\{\}$. L'algoritmo inizia la risalita (leggendo dal basso verso l'alto).
+
+\textbf{Passo 1:} Legge $I(T2, O6, A8)$. La transazione $T2$ non ha sancito la fine. L'identificativo $T2$ finisce in UNDO. Poiché si tratta di un'operazione \textit{Insert}, l'undo consiste nel rimuovere fisicamente il nodo dal disco: \textbf{Azione: $D(O6)$}.
+
+\textbf{Passo 2:} Legge il commit $C(T5)$. Si inserisce a pieno titolo $T5$ in REDO: $UNDO=\{T2\}, REDO=\{T5\}$.
+
+\textbf{Passo 3:} Legge l'abort $A(T3)$. Pur non generando REDO, il sistema sa di dover sradicare $T3$. La inserisce precauzionalmente in UNDO: $UNDO=\{T2, T3\}, REDO=\{T5\}$.
+
+\textbf{Passo 4:} Legge $D(T3, O5, B7)$. Poiché $T3$ è in UNDO, si disfa l'eliminazione recuperando dal log il Before State originario e riscrivendolo materialmente: \textbf{Azione: Assegna all'oggetto $O5$ il valore $B7$}.
+
+\textbf{Passo 5:} Legge $U(T5, O4, \dots)$. $T5$ fa parte dei buoni (REDO), quindi al momento la bypassa inesorabilmente. Subito sopra trova $U(T3, O3, B5, A5)$. Essendo $T3$ cattiva (UNDO), ripristina lo stato pre-modifica: \textbf{Azione: Assegna all'oggetto $O3$ il valore $B5$}.
+
+\textbf{Passo 6:} Procedendo si imbatte in $B(T5)$ (viene snobbata) e poi in $C(T4)$. L'identificativo $T4$ fa il suo trionfale ingresso in REDO: $UNDO=\{T2, T3\}, REDO=\{T4, T5\}$.
+
+\textbf{Incrocio del Checkpoint:} Salendo ancora si incontra il divisorio \textbf{$CK(T2, T3, T4)$}. Il sistema legge la matrice dei censiti. Conclude che per ripulire completamente $T2, T3$ e $T4$ dovrà scavare a ritroso nel log ben oltre il muro del checkpoint. $T1$ non è censito, quindi le manovre di $T1$ sono considerate storiche e pure.
+
+\textbf{Passo 7 (Fase 1-bis):} Si continua la risalita. Incontra $U(T4, \dots)$ ma $T4$ è in REDO, dunque si salta. Subito dopo $U(T3, O2, B3, A3)$. $T3$ fa parte di UNDO, si applica chirurgicamente il ripristino di quel frammento storico: \textbf{Azione: Assegna all'oggetto $O2$ il valore $B3$}.
+Salendo si bypassano i righi per $B(T4), C(T1)$ e $B(T3)$.
+
+\textbf{Passo 8:} Si intercetta $I(T1, \dots)$. Si salta perché $T1$ non è un problema (era già morta e in commit prima del Ckpt). Si scavalca fino all'aggiornamento critico $U(T2, O1, B1, A1)$. Essendo la sfortunata $T2$ elencata tra i cattivi da epurare in UNDO, va ripulito il danno remoto: \textbf{Azione: Assegna all'oggetto $O1$ il valore $B1$}.
+
+La scansione all'indietro si infrange infine sui blocchi operativi primordiali di $B(T2)$ e $B(T1)$. Avendo epurato tutti i frammenti sparsi causati da $T2$ e $T3$, il disco locale si ritrova ora magicamente immacolato da ogni potenziale corruzione temporanea. Gli insiemi stabili computati per la prosecuzione sono fermamente ratificati in:
+\textbf{$UNDO=\{T2, T3\}, REDO=\{T4, T5\}$}.
+
+\subsection{Esecuzione della Fase 2: Applicazione del REDO}
+Forte della classificazione assodata, il gestore dei dati ribalta l'esplorazione del log, procedendo in una frenetica corsa verso valle, dal passato in direzione del crash.
+
+L'algoritmo valuterà unicamente le istruzioni legate a $T4$ e $T5$.
+Durante la veloce discesa in direzione della fine, tralascerà totalmente i comandi impartiti da $T2$ e $T3$ (già annullati).
+
+\textbf{Passo 9:} Quando l'algoritmo sfreccia incrociando l'istruzione in riga 9: $U(T4, O3, B4, A4)$, riconosce che $T4$ appartiene ai legittimati. Onde evitare la dispersione causata dalle modalità Differite (o miste Redo-Undo), reimprime a forza sul disco lo stato calcolato della modifica: \textbf{Azione di REDO: Assegna rigorosamente a $O3$ il differenziale imposto di $A4$}.
+
+\textbf{Passo 10:} Scendendo fino al rigo 10: $U(T5, O4, B6, A6)$, si convalida la promessa del commit per $T5$: \textbf{Azione di REDO: Assegna formalmente e prepotentemente ad $O4$ il differenziale predetto in $A6$}.
+
+Raggiunto il punto fatale di demarcazione del Crash, la base di dati è matematicamente salva. Epurata dal disordine delle rovine, e rafforzata dalle transazioni giurate, è ufficialmente pronta per sbloccare i lucchetti e riprendere a ricevere le richieste degli utenti in stato \textit{Normal}.
+
+\section{Dump, Cold Restart e Ripresa a Freddo}
+
+Le logiche meticolose di ripresa a caldo falliscono clamorosamente qualora il guasto non sia di tipo "soft" ma degeneri in un \textbf{guasto "hard"}, ossia in una rottura meccanica e fisica distruttiva a carico dei dispositivi di memoria secondaria o dei piatti dischi di lavoro. In tale nefasto scenario (come l'allagamento o l'incendio di un server rack), la base di dati e tutte le tracce presenti sul supporto fisico polverizzato sono irrimediabilmente annientate.
+
+Non potendo agire su una base di partenza, le tecniche descritte poc'anzi sono inapplicabili. Diviene strettamente necessario avvalersi di un \textbf{Dump}. Il dump non è altro che una copia totale, completa, olistica ("di riserva," o backup pesante) dell'intera immensità del database in uno specifico punto del passato.
+
+Date le dimensioni titaniche di un simile salvataggio globale, la fotografia dump è solitamente prodotta e calendarizzata dall'amministratore di sistema in specifiche finestre notturne o festive in cui il sistema è dichiaratamente non operativo. Questo gigantesco monolite viene fisicamente e strategicamente salvato su dischi remoti o su un supporto in memoria stabile. Nell'esatto istante dell'avvio della colata di dati, viene furbescamente inserito nel file di log sequenziale un record speciale, detto \textit{record di dump}, che attesta formalmente la data cronologica in cui il dump è stato cristallizzato, specificando tutti i puntatori vitali e i dettagli logistico-pratici dell'operazione (struttura file, dispositivo di destinazione, ecc.). Per evidenti limiti legati all'enorme overhead e ai costi di stoccaggio generati, le manovre di dump globale vengono eseguite molto, ma molto più di rado in proporzione a quanto accade per l'infinita serie giornaliera dei marcatori di checkpoint inattivi o non quiescenti.
+
+\subsection{Meccanica del Cold Restart}
+All'avverarsi del guasto rovinoso e constatata la perdita della memoria di massa (ma potendo ancora contare sull'archivio log rimasto saldamente intonso in memoria stabile), si decreta un \textbf{Cold Restart (ripresa a freddo)}, procedura drastica articolata in tre fasi:
+
+\begin{enumerate}
+    \item \textbf{Re-installazione delle fondamenta:} Un operatore sostituisce i dischi guasti con dell'hardware vergine. Il motore DBMS inizializza il restore forzato procedendo a ripristinare i dati massivi della base a partire dall'ultimo backup colossale (dump) estrapolato dal caveau o dal nastro.
+    \item \textbf{Roll-forward cromatico:} Raggiunta la consistenza di base legata al periodo della fotografia (es. i dati di tre notti prima), il DBMS non può arrestarsi. Procederà allora in avanti leggendo metodicamente il filo d'Arianna e si prenderà il mostruoso carico computazionale di \textbf{rieseguire integralmente} tutte le operazioni chirurgiche, transazione per transazione, rigo dopo rigo, registrate minuziosamente sul file di log partendo dal record di dump e procedendo fino al secondo esatto che ha preceduto lo schianto disastroso ("fino all'istante del guasto").
+    \item \textbf{Riallineamento transazionale finale:} Poiché l'istante di crash ha tranciato arbitrariamente i lavori, la base rigenerata conterrà le medesime alterazioni, imperfezioni e code "sporche" di transazioni pendenti che esistevano nel secondo esatto dell'esplosione. Come ultimo salvifico passaggio, il DBMS eseguirà sulla base dei dati appena risorta la normalissima routine di ripresa a caldo (Warm Restart con checkpoint) illustrata nei capitoli precedenti, epurando il falso stato tramite gli algoritmi di Undo e consolidando gli ultimi frammenti promessi di Redo.
+\end{enumerate}

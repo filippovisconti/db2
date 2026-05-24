@@ -1,0 +1,174 @@
+% Pacchetti richiesti nel preambolo del main.tex per la corretta compilazione di questo capitolo:
+% \usepackage{tikz}
+% \usetikzlibrary{shapes.geometric, positioning, arrows.meta, calc}
+% \usepackage{amsmath}
+% \usepackage{amssymb}
+
+\chapter{Gestione della Concorrenza}
+
+\section{Architettura e Ruolo del Controllo di Concorrenza}
+
+Nel contesto dell'architettura interna di un Sistema di Gestione di Basi di Dati (DBMS), la corretta orchestrazione degli accessi simultanei ai dati è delegata a un modulo specifico: il \textbf{Gestore della concorrenza}. Questo componente non opera in isolamento, ma si inserisce in una fitta rete di comunicazioni con gli altri moduli vitali del sistema.
+
+\vspace{1em}
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.8cm and 1cm,
+    box/.style={draw, rectangle, minimum height=1cm, text width=4.5cm, align=center, fill=gray!10, thick},
+    db/.style={draw, cylinder, shape border rotate=90, aspect=0.25, minimum height=1.5cm, minimum width=2.5cm, align=center, fill=gray!20, thick},
+    line/.style={-, thick}
+]
+
+% Livello 1
+\node[box] (gestore_interr) {Gestore di\\Interrogazioni e aggiornamenti};
+\node[box, right=1.5cm of gestore_interr] (gestore_trans) {Gestore delle\\transazioni};
+
+% Livello 2
+\node[box, below=0.8cm of gestore_interr] (gestore_metodi) {Gestore dei\\metodi d'accesso};
+\node[box, below=0.5cm of gestore_trans.south west, anchor=north] (gestore_conc) {Gestore della\\concorrenza};
+\node[box, right=0.2cm of gestore_conc, yshift=-1cm] (gestore_affid) {Gestore della\\affidabilità};
+
+% Livello 3
+\node[box, below=0.8cm of gestore_metodi] (gestore_buffer) {Gestore\\del buffer};
+
+% Livello 4
+\node[box, below=0.8cm of gestore_buffer] (gestore_mem) {Gestore della\\memoria secondaria};
+
+% Livello 5 (DB)
+\node[db, below=0.8cm of gestore_mem] (memoria) {Memoria\\secondaria};
+
+% Collegamenti
+\draw[line] (gestore_interr) -- (gestore_metodi);
+\draw[line] (gestore_trans.south west) -- (gestore_conc.north);
+\draw[line] (gestore_trans.south east) -- (gestore_affid.north);
+
+\draw[line] (gestore_metodi.east) -- ++(0.3,0) |- (gestore_conc.west);
+\draw[line] (gestore_metodi.east) -- ++(0.3,0) |- (gestore_affid.west);
+
+\draw[line] (gestore_metodi) -- (gestore_buffer);
+\draw[line] (gestore_buffer) -- (gestore_mem);
+\draw[line] (gestore_mem) -- (memoria);
+
+\end{tikzpicture}
+\end{center}
+\vspace{1em}
+
+Il diagramma illustra come il \textit{Gestore delle transazioni} si interfacci in maniera bidirezionale con il \textit{Gestore della concorrenza} e il \textit{Gestore dell'affidabilità}. A sua volta, il controllore della concorrenza deve dialogare con il \textit{Gestore dei metodi d'accesso} per porre i necessari blocchi logici (lock) sui dati prima che questi vengano richiesti al \textit{Gestore del buffer}.
+
+La necessità di un simile apparato nasce dal fatto che la concorrenza è un requisito fondamentale e ineludibile per le basi di dati moderne. Nei sistemi informativi reali (quali gli istituti di credito, i complessi sistemi di prenotazione aerea o i server dei social network), il throughput richiesto impone l'elaborazione di decine o centinaia di transazioni al secondo. In questi scenari ad alto traffico, le transazioni non possono essere processate in modo puramente seriale (eseguendo cioè ogni processo per intero dal suo inizio alla sua fine, senza permettere azioni intercalate di altre transazioni), poiché ciò causerebbe colli di bottiglia catastrofici.
+
+Tuttavia, l'abbandono dell'esecuzione seriale per abbracciare l'interleaving (l'alternanza delle azioni) introduce un problema architetturale profondo: l'esecuzione concorrente priva di regolamentazione genera inevitabilmente delle anomalie distruttive, che alterano la semantica dei dati e che, di conseguenza, devono essere rigorosamente governate dallo scheduler del DBMS.
+
+\section{Tassonomia delle Anomalie di Concorrenza}
+
+Le anomalie causate dalla concorrenza non controllata si manifestano in diverse forme fenomenologiche, a seconda della natura delle operazioni (letture o scritture) che si accavallano nel tempo.
+
+\subsection{Perdita di Aggiornamento (Lost Update)}
+
+La perdita di aggiornamento si verifica quando due transazioni accedono simultaneamente al medesimo dato, ne leggono il valore iniziale e calcolano un aggiornamento sovrascrivendosi a vicenda.
+
+Si consideri l'esempio didattico di due prelevamenti eseguiti contemporaneamente da un medesimo conto bancario da due cointestatari (es. Paperina e Paperino).
+Lo stato iniziale della base di dati riporta un saldo pari a $1000$.
+\begin{enumerate}
+    \item Il primo terminale interroga il sistema: "Quanto c'è sul conto?", ottenendo in lettura il valore $1000$.
+    \item Nello stesso istante, il secondo terminale interroga il sistema: "Quanto c'è sul conto?", ottenendo anch'esso in lettura il valore $1000$.
+    \item Il primo utente decide di prelevare $200$, calcolando localmente il nuovo saldo ($1000 - 200 = 800$) e comandando la scrittura del valore $800$.
+    \item Il secondo utente decide di prelevare $100$, calcolando localmente il nuovo saldo basandosi sulla \textit{sua} lettura iniziale ($1000 - 100 = 900$) e comandando la scrittura del valore $900$.
+\end{enumerate}
+
+Il risultato finale impresso sulla memoria di massa sarà $900$. Un intero aggiornamento (il prelievo di $200$) viene letteralmente perso, svanito nel nulla.
+Se le due operazioni fossero state collocate dal sistema in un piano di esecuzione seriale (tutta la prima transazione e, solo dopo il suo commit, l'inizio della seconda), il calcolo avrebbe restituito il risultato algebricamente corretto, ossia $700$ ($1000 - 200 - 100$).
+
+Formalizzando questo scenario, si osserva un'esecuzione concorrente disastrosa tra la transazione $t_1$ e la transazione $t_2$ sulla variabile $x$:
+\begin{align*}
+    t_1&: r_1(x) \\
+    t_2&: r_2(x) \\
+    t_1&: x = x - 200 \\
+    t_2&: x = x - 100 \\
+    t_1&: w_1(x) \\
+    t_1&: \text{commit} \\
+    t_2&: w_2(x) \\
+    t_2&: \text{commit}
+\end{align*}
+Questa alternanza inaccettabile delle azioni produce una sovrascrittura cieca. Dal punto di vista sistemistico, questa anomalia è classificata come un conflitto di tipo \textbf{W-W (Write-Write)}, in quanto il danno si materializza per colpa di due scritture concorrenti non isolate.
+
+\subsection{Lettura Sporca (Dirty Read o Lettura prima del Commit)}
+
+La lettura sporca è un'anomalia che compromette radicalmente il principio di isolamento, permettendo a una transazione di accedere a dati temporanei generati da un'altra transazione non ancora conclusa, e che potrebbe non concludersi mai.
+
+Si ponga il caso in cui vi siano $1000$ unità sul conto.
+Viene avviata un'operazione di versamento di un assegno pari a $10.000$ unità. Il sistema esegue l'aggiornamento e il nuovo saldo provvisorio in memoria diviene $11.000$.
+In questo preciso frangente, un secondo utente esegue un'interrogazione per conoscere il saldo e legge con esultanza il valore $11.000$ ("Abbiamo $11.000$, evviva!!").
+Tuttavia, poco dopo il sistema bancario rileva che l'assegno depositato è falso; la prima transazione non può concludersi positivamente ed esegue un abort, annullando l'operazione. Il saldo effettivo nel database viene ripristinato a $1000$. L'utente due ha di fatto letto un dato profondamente sbagliato, un "fantasma" temporaneo.
+
+La schematizzazione formale illustra la cronologia dell'errore:
+\begin{align*}
+    t_1&: r_1(x) \\
+    t_1&: x = x + 11000 \\
+    t_1&: w_1(x) \\
+    t_2&: r_2(x) \quad \text{--- (Lettura dello stato intermedio)} \\
+    t_1&: \text{abort}
+\end{align*}
+La transazione $t_2$ ha catturato uno stato "sporco", non definitivo, che è stato successivamente cancellato dall'abort della transazione creatrice $t_1$. La gravità risiede nel fatto che $t_2$ potrebbe utilizzare questo dato fallace per assumere decisioni algoritmiche o per comunicare informazioni inconsistenti all'esterno del DBMS. Questa patologia è catalogata come un'anomalia derivante da conflitti \textbf{R-W (Read-Write) o W-W} culminanti in un \textit{abort}.
+
+\subsection{Lettura Inconsistente e Aggiornamento Fantasma (Ghost Update)}
+
+Questo pattern anomalo si presenta quando una transazione esegue calcoli su un set di dati correlati, mentre una seconda transazione ne altera una parte modificando la coerenza logica dell'intero set.
+
+Si immagini la necessità di calcolare il patrimonio totale di un utente distribuito su due conti: il conto $A$ (contenente $1000$) e il conto $B$ (contenente $1000$). La somma logica del patrimonio in questo stato coerente è banalmente $2000$.
+\begin{enumerate}
+    \item Una transazione di lettura interroga il conto $A$ e acquisisce il valore $1000$.
+    \item Nel frattempo, una seconda transazione si intromette ed esegue uno spostamento di fondi (un bonifico interno di $500$) dal conto $A$ al conto $B$. La transazione decurta $A$ (che diventa $500$), incrementa $B$ (che diventa $1500$) e chiude validamente con un commit.
+    \item La prima transazione, ignara, prosegue il suo calcolo interrogando ora il conto $B$ e acquisendo il valore aggiornato di $1500$.
+    \item Il risultato finale della lettura affermerà falsamente: "Ehi, abbiamo $2500$!" ($1000 + 1500$).
+\end{enumerate}
+
+Formalmente, si ha un aggiornamento fantasma o lettura inconsistente con la base di dati:
+\begin{align*}
+    t_1&: r_1(y) \quad \text{(legge 1000)} \\
+    t_2&: r_2(y) \\
+    t_2&: y = y - 500 \\
+    t_2&: r_2(z) \\
+    t_2&: z = z + 500 \\
+    t_2&: w_2(y) \\
+    t_2&: w_2(z) \\
+    t_2&: \text{commit} \\
+    t_1&: r_1(z) \quad \text{(legge 1500)} \\
+    t_1&: s = y + z
+\end{align*}
+La prima transazione ($t_1$) restituisce $s = 2500$, ma tale somma non è mai stata una realtà matematica nel database: $t_1$ percepisce un'illusione causata dallo sfasamento temporale, una fotografia di uno stato non esistente e logicamente incoerente. Tale fenomeno è causato da un conflitto \textbf{R-W}.
+
+Esiste anche una manifestazione ancora più elementare e diretta di lettura inconsistente (nota in letteratura come \textit{unrepeatable read}), che avviene sul medesimo singolo oggetto:
+\begin{align*}
+    t_1&: r_1(x) \\
+    t_2&: r_2(x) \\
+    t_2&: x = x + 1 \\
+    t_2&: w_2(x) \\
+    t_2&: \text{commit} \\
+    t_1&: r_1(x)
+\end{align*}
+In questa sequenza, $t_1$ legge semplicemente due valori diversi per la stessa variabile $x$ all'interno dello stesso ciclo transazionale. Sebbene sembri un caso di scuola, questa inconsistenza è fatale nelle elaborazioni reali, ad esempio durante l'esecuzione di un join implementato mediante l'algoritmo \textit{nested-loop}, in cui il motore relazionale è costretto a scansionare e leggere più volte i record della medesima relazione per incrociarli. Un mutamento intermedio corromperebbe irrimediabilmente il prodotto cartesiano del join.
+
+\subsection{Inserimento Fantasma (Phantom)}
+
+L'inserimento fantasma rappresenta una variazione dell'inconsistenza R-W, che non si accanisce su tuple esistenti, ma che altera il risultato delle interrogazioni che si basano su conteggi o predicati di ricerca.
+
+Considerando il dominio di un sistema di prenotazione voli:
+\begin{enumerate}
+    \item La transazione $t_1$ esegue una query aggregata per "contare i posti disponibili" su un volo, ottenendo un certo numero.
+    \item Mentre $t_1$ sta ancora elaborando la sua logica, si introduce la transazione $t_2$, la quale interviene sulla flotta sostituendo l'aeromobile con uno più grande; essa pertanto esegue l'operazione "aggiungi nuovi posti" inserendo fisicamente nuovi record nel database, per poi concludere con un commit.
+    \item Se la transazione $t_1$, per esigenze di conferma, ripete l'operazione "conta i posti disponibili", ricaverà magicamente un conteggio numerico differente e incoerente rispetto al primo.
+\end{enumerate}
+L'inconsistenza deriva qui da un conflitto \textbf{R-W su un dato "nuovo"} (appunto, un fantasma apparso nel dominio della query).
+
+\section{Riepilogo e Classificazione}
+
+La teoria del controllo di concorrenza sintetizza le patologie descritte associandole ai pattern di conflitto generanti tra letture (Read, R) e scritture (Write, W):
+
+\begin{itemize}
+    \item \textbf{Perdita di aggiornamento (Lost Update):} È generata da un puro incrocio in cui due transazioni scrivono simultaneamente basandosi su letture obsolete, manifestando un conflitto del tipo \textbf{W-W}.
+    \item \textbf{Lettura sporca (Dirty Read):} Scaturisce da una transazione che legge i residui non consolidati di un'altra. È un conflitto riconducibile allo schema \textbf{R-W} (o talvolta W-W) che degenera a causa di un \textbf{abort} della transazione modificatrice.
+    \item \textbf{Letture inconsistenti (Inconsistent Read / Unrepeatable Read):} Generano viste matematicamente false di dati modificati ma esistenti, e sono figlie di un incrocio asincrono \textbf{R-W}.
+    \item \textbf{Aggiornamento fantasma (Ghost Update):} Alterazione asincrona della coerenza di un insieme di tuple preesistenti indotta da un conflitto \textbf{R-W}.
+    \item \textbf{Inserimento fantasma (Phantom Read):} Inconsistenza aggregativa provocata dall'apparizione o scomparsa di record, innescata da un conflitto \textbf{R-W su dato "nuovo"}.
+\end{itemize}

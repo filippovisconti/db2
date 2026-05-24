@@ -1,0 +1,185 @@
+% Pacchetti richiesti nel preambolo del main.tex per la corretta compilazione di questo capitolo:
+% \usepackage{tikz}
+% \usetikzlibrary{shapes.geometric, positioning, arrows.meta, calc}
+% \usepackage{amsmath}
+% \usepackage{amssymb}
+
+\chapter{Il Controllo di Concorrenza: Modelli e Anomalie Avanzate}
+
+\section{Riepilogo delle Anomalie Concorrenziali}
+
+Per inquadrare sistematicamente i problemi derivanti da un'esecuzione concorrente non sorvegliata, è utile riepilogare le principali anomalie in funzione delle tipologie di conflitto tra letture (Read, R) e scritture (Write, W). Queste anomalie costituiscono la base formale su cui si erige la necessità di stabilire regole di isolamento:
+\begin{itemize}
+    \item \textbf{Perdita di aggiornamento}: Caratterizzata da una sovrascrittura distruttiva simultanea, riconducibile a un conflitto \textbf{W-W}.
+    \item \textbf{Lettura sporca}: Avviene quando una transazione legge un dato alterato da una seconda transazione che successivamente fallisce. Tale anomalia è classificabile come un conflitto \textbf{R-W (o W-W) con abort}.
+    \item \textbf{Letture inconsistenti}: La lettura di un medesimo dato in istanti di tempo successivi restituisce valori differenti a causa di aggiornamenti intermedi; conflitto di base \textbf{R-W}.
+    \item \textbf{Aggiornamento fantasma}: Modifica della coerenza complessiva di un insieme di dati letti, indotta da un'interferenza esterna asincrona \textbf{R-W}.
+    \item \textbf{Inserimento fantasma}: Un'alterazione del conteggio o del dominio di una query generata da un conflitto \textbf{R-W su un dato "nuovo"}.
+\end{itemize}
+
+\section{Livelli di Isolamento e Implicazioni Pratiche (SQL e JDBC)}
+
+Per calare la teoria in scenari d'uso industriali, occorre chiedersi sempre se tutte queste anomalie ci debbano \textit{realmente} preoccupare con la stessa intensità.
+Si ponga ad esempio l'esigenza di una catena di supermercati che, appoggiandosi su una base di dati clienti provvista di tessera fedeltà (tabella \texttt{Clienti(Codice, Negozio, Punti)}), debba calcolare sistematicamente statistiche aggregate. La transazione si concretizzerebbe in una query massiva:
+\begin{verbatim}
+SELECT Negozio, count(*) as numClienti,
+sum(Punti) as totalePunti,
+sum(Punti) / count(*) as mediaPunti
+FROM Clienti
+GROUP BY Negozio
+\end{verbatim}
+
+La gestione completa del controllo della concorrenza (al suo massimo livello di rigore) ha un impatto architetturale enormemente costoso e degrada le performance. La filosofia gestionale moderna postula che, laddove il massimo rigore non sia strettamente necessario ai fini operativi o di business, è lecito e doveroso rinunciarvi temporaneamente. (Nota bene: questo ammorbidimento è concesso \textit{solo} per le transazioni di pura lettura, mai per quelle che comportano delle scritture attive).
+
+Per garantire questa flessibilità programmatica, lo standard \textbf{SQL:1999} (e parallelamente l'interfaccia JDBC) introduce il concetto modulare dei \textbf{Livelli di Isolamento}. In questo paradigma:
+\begin{itemize}
+    \item Le transazioni possono essere dichiarate esplicitamente come \texttt{read-only} (a indicare che non possono effettuare operazioni di scrittura, agevolando lo scheduler).
+    \item Il livello di isolamento può essere modulato e scelto arbitrariamente per ogni singola transazione, al fine di bilanciare esattezza formale e velocità d'esecuzione.
+\end{itemize}
+
+I quattro livelli di isolamento standard, elencati in ordine crescente di rigore (dal più tollerante al più restrittivo), stabiliscono quali anomalie il sistema si impegna a prevenire attivamente:
+\begin{enumerate}
+    \item \textbf{READ UNCOMMITTED}: È il livello meno protettivo. Permette lo sviluppo di letture sporche, letture inconsistenti, aggiornamenti fantasma e inserimenti fantasma.
+    \item \textbf{READ COMMITTED}: Evita che si verifichino letture sporche (il sistema attende il commit della controparte prima di far leggere), ma tollera l'occorrenza di letture inconsistenti, aggiornamenti fantasma e inserimenti fantasma.
+    \item \textbf{REPEATABLE READ}: Evita la comparsa di tutte le anomalie di stato interno sui dati già esistenti, bloccando quindi le letture sporche, inconsistenti e gli aggiornamenti fantasma. Tuttavia, è ancora strutturalmente vulnerabile all'anomalia degli inserimenti fantasma.
+    \item \textbf{SERIALIZABLE}: È il livello assoluto. Evita l'occorrenza di tutte le anomalie in toto, garantendo un'emulazione perfetta di un comportamento seriale isolato.
+\end{enumerate}
+Come si può evincere formalmente, ogni livello di isolamento è concepito in modo cumulativo: esso garantisce l'assenza delle anomalie associate ai livelli che lo precedono gerarchicamente nell'elenco e, contestualmente, accetta scientemente il rischio che si manifestino le anomalie imputabili ai livelli che lo seguono.
+\textit{Nota cruciale sulle Scritture:} Si potrebbe supporre che la "perdita di aggiornamento" (Lost Update, conflitto W-W) decada al variare di questi livelli. Nella realtà dei DBMS, la perdita di aggiornamento costituisce un'anomalia di tale gravità semantica che dovrebbe essere eversamente evitata a livello di motore. Nella pratica, per scongiurare qualsiasi corruzione W-W e ottenere la corretta sovrascrittura, è prescritta l'imposizione tassativa dell'uso esclusivo del livello \texttt{serializable} per tutte quelle transazioni che operano operazioni di manipolazione e che \textit{scrivono} dati.
+
+\subsection{Esempi Applicativi dei Livelli di Isolamento (Caso d'esame)}
+Un test fondamentale per verificare la comprensione dei livelli è calare l'astrazione SQL in contesti decisionali reali, esaminando la query del supermercato sotto varie circostanze di contorno:
+
+\begin{itemize}
+    \item \textbf{Caso 1}: L'operazione statistica è eseguita mentre, parallelamente, vengono inseriti alcuni nuovi clienti. La finalità dell'utente che lancia la query è acquisire informazioni approssimate e ragionevolmente indicative sugli andamenti. Considerando che i nuovi dati inseriti sono "pochi", il rischio è incorrere in \textit{inserimenti fantasma}. Tuttavia, essendo la finalità esplorativa e macroscopica, un conteggio parzialmente sfasato per eccesso o per difetto non invalida la ratio del calcolo. Il livello più congruo ed efficiente è \textbf{READ COMMITTED} (o eventualmente Read Uncommitted).
+    \item \textbf{Caso 2}: L'operazione statistica è in esecuzione mentre si stanno massivamente modificando i valori dei punti di \textit{tutti} i clienti a causa di un algoritmo (in cui si sa per certo che si inseriranno temporaneamente valori errati di ordini di grandezza, corretti poi a fine blocco). La finalità è sempre indicativa. In questo frangente, la lettura di un dato non definitivo ("sporco") produrrebbe somme medie aberranti (es. milioni di punti per un negozio), vanificando il senso di una media indicativa. È imperativo neutralizzare la lettura sporca. Il livello appropriato si innalza a \textbf{READ COMMITTED}.
+    \item \textbf{Caso 3}: Si esegue l'operazione per proclamare i primi tre negozi vincitori, determinando l'assegnazione di premi economici. Fortunatamente, ci si trova in un momento di "fermo" in cui non c'è concorrenza (non vi sono aggiornamenti in corso). Poiché il calcolo è cruciale ma lo stato è statico, non vi è alcun rischio anomalo imminente. È perciò saggio sfruttare l'occasione richiedendo il livello \textbf{READ UNCOMMITTED}, beneficiando della massima velocità e assenza di over-head sui lucchetti, consoni in un ambiente esente da scritture confliggenti.
+    \item \textbf{Caso 4}: L'operazione sancisce i tre negozi da premiare (calcolo delicatissimo) mentre un'altra utenza sta inserendo alcuni nuovi clienti (potenziali concorrenti in tempo reale). Essendo in gioco la proclamazione di una classifica vincolante (e non una media approssimata), leggere un numero clienti diverso da quello finale per via di una variazione invisibile genererebbe \textit{inserimenti fantasma} inaccettabili, portando all'annuncio di un vincitore falsato. Va arginata ogni singola minima potenziale interferenza. Il livello richiesto obbligatoriamente è il massimo, ovvero \textbf{SERIALIZABLE}.
+    \item \textbf{Caso 5}: Stessa finalità di premiazione di estremo rigore (come il caso 4), ma questa volta le operazioni parallele non consistono in inserimenti nuovi, bensì in massicce revisioni aritmetiche sui valori esistenti di punti di tutti i clienti. L'esigenza è calcolare la somma perfetta sulle tuple già presenti, bloccando alla radice aggiornamenti fantasma e letture inconsistenti provocate dall'algoritmo altrui. Poiché si agisce su domini esistenti, il livello idoneo a "congelare" lo stato del dataset attuale contro le derive intermedie è \textbf{REPEATABLE READ}.
+\end{itemize}
+
+\section{Teoria e Formazione dello Schedule}
+
+Mettendo temporaneamente da parte i dettagli operativi del Gestore del buffer o dell'affidabilità, e concentrandoci unicamente sull'interfaccia tra il modulo "Gestore delle transazioni" (che emette \texttt{begin}, \texttt{commit}, \texttt{abort}) e il "Gestore della concorrenza" (che controlla, inibisce e riordina le istruzioni \texttt{read} e \texttt{write} interrogando la "Tabella dei lock"), si definisce la base formale e "teorica" del controllo concorrenziale.
+
+In questo modello analitico purificato, una \textbf{Transazione} viene deprivata di tutta la sua semantica logica e di programmazione ("senza ulteriore semantica"). Essa è ridotta unicamente ed esclusivamente a una sequenza ordinata di istruzioni di lettura ($r$) e scrittura ($w$) operanti su specifiche variabili, seguite irrimediabilmente da una conclusione (commit $c$ o abort $a$).
+\textit{Notazione standard}: Ogni transazione è contraddistinta da un identificatore numerico univoco posto a pedice.
+Esempio di una transazione singola:
+$$t_1: r_1(x) r_1(y) w_1(x) w_1(y) c_1$$
+
+Quando più transazioni vengono inviate contemporaneamente al sistema, le loro operazioni si fondono nel tempo in un'unica successione temporale complessiva.
+Questa sequenza cronologica globale e intrecciata di operazioni di input/output che il DBMS si accinge a processare prende il nome tecnico di \textbf{Schedule}.
+
+Per poter formulare agevolmente teorie algebriche sugli schedule, si introduce una vitale ipotesi semplificativa preliminare: nello studio delle sequenze, si sceglie di ignorare aprioristicamente l'esistenza e la traccia di tutte le transazioni che finiscono per andare in \texttt{abort}. Poiché il fallimento di una transazione e il suo conseguente disfacimento vengono assorbiti dal gestore dell'affidabilità annullandone gli effetti pratici, la modellazione matematica di un sistema concorrenziale sano assume che a influire in via definitiva sul bilancio siano soltanto le transazioni di successo (in sostanza, non scriviamo le dichiarazioni di commit o abort esplicite e omettiamo le ritirate). Ne consegue che l'oggetto di analisi è puramente la \textbf{commit-proiezione} degli schedule reali.
+
+\textit{Esempio di uno schedule intrecciato:}
+$$S: r_1(x) r_2(z) w_1(x) w_2(z)$$
+Esso nasce dall'intersezione concorrente delle transazioni primarie:
+$t_1: r_1(x) w_1(x)$
+$t_2: r_2(z) w_2(z)$
+
+\section{Obiettivi dello Scheduler: Serialità e Serializzabilità}
+
+Il macro-obiettivo ingegneristico per l'architettura di un controllore di concorrenza (o Scheduler) è permettere il parallelismo pur evitando chirurgicamente le anomalie. Il fondamento dell'assenza di anomalie risiede nel concetto aureo dello \textbf{Schedule Seriale}.
+Si definisce Seriale uno schedule nel quale le istruzioni costituenti le diverse transazioni non si sovrappongono mai e non si mischiano: una transazione è servita interamente dall'inizio alla fine, separatamente e prima che la successiva possa avviare la sua prima istruzione.
+Esempio Seriale:
+$$S_2: r_0(x) r_0(y) w_0(x) r_1(y) r_1(x) w_1(y) r_2(x) r_2(y) r_2(z) w_2(z)$$
+Essendo le esecuzioni temporalmente incapsulate e mutualmente esclusive, la teoria dimostra in modo incontrovertibile che \textbf{uno schedule seriale non presenta né può mai presentare anomalie}. Purtroppo, come già sancito, forzare la serialità annienta le prestazioni del server.
+
+Lo scheduler deve pertanto ricercare il compromesso logico: deve ammettere interleaving, ma a condizione imperativa che lo schedule intrecciato risultante appartenga alla speciale classe matematica degli \textbf{Schedule Serializzabili}.
+Uno schedule misto è Serializzabile se, pur eseguendo le operazioni in un ordine temporalmente confuso e accavallato, è garantito matematicamente che esso produca lo \textbf{stesso identico risultato logico e persistente} che si otterrebbe elaborando uno schedule perfettamente seriale costruito sulle stesse medesime transazioni.
+Affermare che un risultato è lo "stesso" richiede di definire criteri insindacabili di equivalenza formale tra schedule.
+Il ruolo meccanico del Controllore di concorrenza è per l'appunto fungere da filtro ad altissima velocità: un sistema reattivo che accetta fluidamente, rifiuta o posticipa (riordina) le operazioni atomiche richieste ai database, mantenendo rigido l'ordine interno delle azioni previsto dal programmatore della singola transazione, ma scartando ogni intreccio malevolo e \textit{ammettendo il passaggio verso il disco ai soli schedule serializzabili}.
+
+\section{Modello VSR: La View-Serializzabilità}
+
+L'idea base risiede nell'individuare la classe formale degli schedule serializzabili e di farvi appartenere solo istanze sicure, col vincolo di poter verificare la correttezza a run-time e in tempi ristrettissimi. Il primo modello teorico forte e concettualmente impeccabile sviluppato in ambito accademico è la cosiddetta \textbf{View-Serializzabilità}.
+
+Per enunciare l'equivalenza secondo questo modello, occorre fornire due definizioni strutturali preliminari sugli attributi delle operazioni appartenenti a un qualsiasi schedule $S$:
+\begin{enumerate}
+    \item \textbf{Scrittura finale (Final Write)}: Un'operazione di scrittura $w_i(x)$ all'interno dello schedule $S$ è elevata al rango di "scrittura finale" se e solo se essa rappresenta cronologicamente l'\textit{ultima} scrittura eseguita sul particolare oggetto $x$ durante tutta la durata dell'intero schedule $S$. Questa definizione fissa il parametro responsabile per lo stato definitivo della base di dati in memoria di massa alla chiusura di tutti i lavori.
+    \item \textbf{Relazione Legge-da (Reads-From)}: Un'istruzione di lettura $r_i(x)$ instaurata dalla transazione $i$ "legge-da" un'istruzione di scrittura $w_j(x)$ prodotta dalla transazione $j$ nello schedule $S$ se e solo se il valore numerico pescato ed effettivamente incamerato da $r_i(x)$ corrisponde al valore preciso depositato da $w_j(x)$. Affinché questo legame fisico sia conclamato, devono verificarsi tassativamente e contemporaneamente due condizioni posizionali: primo, $w_j(x)$ deve precedere temporalmente $r_i(x)$ nel flusso $S$; secondo, nel segmento di tempo compreso fra l'esecuzione di $w_j(x)$ e la lettura di $r_i(x)$, non deve esserci mai l'intervento di nessun'altra istruzione aliena $w_k(x)$ (di un'ipotetica transazione interposta $k$) volta ad alterare furtivamente la variabile.
+\end{enumerate}
+
+Esempio esplicativo della relazione:
+$$S_2: r_2(x) \ w_0(x) \ r_1(x) \ w_2(x) \ w_2(z)$$
+Analizzando la catena:
+- La lettura $r_1(x)$ è situata successivamente all'istruzione $w_0(x)$ e non vi sono alterazioni interposte. Ne deduciamo che $r_1(x)$ "legge da" $w_0(x)$.
+- Le \textit{scritture finali} sancite per chiudere lo schedule sono la $w_2(x)$ per la variabile $x$, e la $w_2(z)$ per la variabile $z$.
+
+\subsection{Definizione e Verifica dell'Equivalenza VSR}
+Avendo stabilito queste metriche, la teoria postula il principio di equivalenza visiva (View-Equivalence).
+Due distinti schedule intrecciati $S_i$ ed $S_j$ (che processano nativamente lo stesso blocco di transazioni senza alterare l'ordine sequenziale impartito all'interno delle singole componenti) sono definiti \textbf{view-equivalenti} (notazione formale $S_i \approx_V S_j$) se e solo se i due flussi, una volta portati a termine, manifestano congiuntamente:
+\begin{enumerate}
+    \item Le **stesse medesime scritture finali** per ogni variabile. Questo postula l'uguaglianza materiale e garantisce che lo stato persistente della base di dati sia perfettamente identico a prescindere dall'ordine.
+    \item La **stessa medesima relazione legge-da** per ogni transazione coinvolta. Questo assicura che in ambedue gli schedule non cambi la catena della dipendenza informativa e l'"influenza" reciproca: ogni transazione nutrirà i propri algoritmi col medesimo valore originario e percepirà lo stesso identico contesto logico, preservando l'isolamento percettivo.
+\end{enumerate}
+
+Per sillogismo, un qualsiasi schedule $S$ è decretato \textbf{view-serializzabile} (e ammesso nell'insieme aureo **VSR**) se esiste in letteratura logica un qualsivoglia "schedule seriale" che si dimostri matematicamente view-equivalente ad esso.
+
+Se valutassimo un disastroso caso di perdità di aggiornamento:
+$$S_7: r_1(x) r_2(x) w_1(x) w_2(x)$$
+Ci si domanda se $S_7$ sia view-serializzabile. La risposta del modello è categoricamente "NO". Esaminando il tracciato, la relazione \textit{legge-da} è concettualmente vuota o neutra (non esistono legami incrociati di scrittura verso l'altro utente prima della lettura). Al contrario, se si provasse a costringere l'esecuzione in uno dei due possibili schedule seriali obbligatori (eseguire tutto il ramo $t_1$ e successivamente tutto il ramo $t_2$), il secondo ramo sarebbe strutturalmente forzato a instaurare una coppia dipendente e leggere il dato partorito dal primo. Le relazioni "legge-da" tra lo schedule sfuso e le sue controparti seriali non corrisponderebbero mai, sancendo l'inammissibilità di $S_7$.
+
+\subsection{Il Dramma della Complessità e l'Inutilizzabilità Pratica}
+
+Sul piano puramente assiomatico, l'insieme degli schedule view-serializzabili (VSR) è la traduzione matematica perfetta del concetto di correttezza concorrenziale assoluta. Il problema dirimente sorge prepotente nell'istante in cui si pretende che uno scheduler implementi questo algoritmo di controllo a livello sistemistico.
+
+A livello di Teoria della Complessità Computazionale, effettuare la mera verifica di view-equivalenza se si dispongono "a vista" i due schedule chiusi $S_i$ ed $S_j$ costituisce un'operazione risolvibile in tempo \textit{polinomiale}.
+Eppure, il vero problema architetturale risiede nel fatto che un motore database non dispone mai dello schedule seriale "di riferimento" a priori; esso deve decidere in frazioni di secondo sull'accettabilità o meno di un flusso in entrata.
+Affrontare la domanda aperta "Decidere se un dato schedule $S$ è implicitamente view-serializzabile?" esige il calcolo e la verifica combinatoria della view-equivalenza di $S$ contro \textit{tutte} le possibili innumerevoli permutazioni seriali costruibili sulle transazioni pendenti. La scienza informatica dimostra che questo problema di astrazione appartiene alla ristretta classe di complessità dei problemi **NP-completi**.
+
+Un problema NP-completo è, per sua natura asintotica, talmente dispendioso a livello algoritmico che la CPU dello scheduler si saturerebbe nel vano tentativo di calcolarne l'esito formale.
+La conclusione perentoria e inappellabile dell'ingegneria del software è che il paradigma VSR **non è e non sarà mai utilizzabile nella pratica industriale**.
+Il progetto di progettare un'architettura in grado di trovare istantaneamente sul server "tutti e soli" gli schedule serializzabili basandosi sulla visuale è condannato: è oggettivamente troppo costoso.
+
+\section{Il Compromesso Architetturale e i Limiti Superiori}
+
+Dinanzi all'impraticabilità dell'algoritmo perfetto (il set totale degli Schedule Serializzabili coperti da VSR), sorge la necessità di approntare un correttivo di salvaguardia ("Che facciamo?").
+
+L'intuizione formidabile che getta le basi della prassi odierna consiste nel non voler inseguire caparbiamente l'insieme VSR completo. Si preferisce piuttosto individuare, all'interno del gigantesco universo di tutti gli schedule mischiati, una sotto-classe di comportamenti che possieda una "proprietà strutturale" nettamente più restrittiva della view-serializzabilità, fungendo da "condizione sufficiente" di salvaguardia, ma che sia dotata del pregio inestimabile di essere analizzabile e calcolabile a run-time dalla macchina in tempi computazionali estremamente facili e irrisori.
+
+Questa filosofia accetta esplicitamente una perdita logica: si decide preventivamente e lucidamente di "rinunciare" alla validazione e al salvataggio di alcuni schedule intricati ma tecnicamente sani (che sarebbero potuti essere serializzabili secondo VSR), al solo scopo di sapere con matematica e tempestiva certezza e rapidità che tutti i blocchi che effettivamente riusciranno a varcare il filtro imposto dal DBMS saranno garantitamente corretti e scevri da anomalie.
+
+Il percorso accademico e industriale per raggiungere tale snellimento procede in due step:
+\begin{enumerate}
+    \item Definizione di un'altra e più restrittiva proprietà analitica "teorica": la \textbf{Conflict-serializzabilità}.
+    \item Implementazione successiva di protocolli fisici e meccaniche di locking utilizzabili operativamente a livello pratico, le quali inducono il rispetto di tale restrizione, specificamente il modello \textbf{2PL (Two-Phase Locking)} o i più recenti approcci \textbf{Multiversione}.
+\end{enumerate}
+
+\section{Il Modello CSR: La Conflict-Serializzabilità}
+
+La scorciatoia strutturale su cui poggia il pragmatismo risiede nell'analisi mirata e superficiale dei soli blocchi di istruzioni pericolosi. Per poter modellare tale teoria si introduce preliminarmente il concetto nodale di istruzioni "in conflitto".
+
+In un ambiente isolato, si palesa inequivocabilmente che un'operazione atomica $a_i$ si trova in aperto **conflitto** con un'altra operazione interposta $a_j$ se e solo se sussistono contemporaneamente tre precondizioni fatali:
+\begin{enumerate}
+    \item La diversità genitoriale: Deve valere rigidamente la regola $i \neq j$. Le due operazioni contrapposte devono per forza appartenere a istanze di transazioni intrinsecamente diverse e scollegate.
+    \item La comunanza di bersaglio: Le due operazioni $a_i$ ed $a_j$ devono fisicamente tentare di manipolare o afferrare nel proprio spettro logico il medesimo "stesso oggetto" o variabile del database (es. entrambe mirano alla tupla identificativa $x$).
+    \item La manipolazione di stato: Almeno una delle due operazioni che entrano in rotta di collisione deve consistere in un'operazione di alterazione e modifica, ossia una \textit{scrittura} attiva (Write).
+\end{enumerate}
+
+In base a questi fondamenti, la teoria enuclea e restringe il perimetro a due uniche categorie strutturali di conflitto che il controllore deve monitorare incessantemente:
+\begin{itemize}
+    \item \textbf{Il conflitto Read-Write} (incrociabile simmetricamente come rw o wr): Si genera quando un'utenza cerca di estrarre un valore che un'altra sta repentinamente alterando, innescando lo spettro della lettura sporca o fantasma.
+    \item \textbf{Il conflitto Write-Write} (ww): Si genera quando due utenze collidono per il dominio di una risorsa, con l'obiettivo comune di sovrascriverla senza una coordinazione sequenziale, innescando il rischio supremo della perdita di aggiornamento.
+\end{itemize}
+
+\subsection{Definizione e Verifica dell'Equivalenza CSR}
+Rintracciata e mappata la ragnatela dei conflitti puri, la giurisprudenza teorica per superare il dogma dell'NP-completezza decreta il postulato della "Conflict-Equivalenza" (Equivalenza per Conflitti).
+
+Date le medesime transazioni, incapsulate conservativamente col proprio ordine iterativo, gli schedule paralleli $S_i$ ed $S_j$ sono valutati e battezzati come **conflict-equivalenti** (in simboli $S_i \approx_C S_j$) a patto e soltanto se \textit{ogni singola coppia identificata di operazioni in conflitto} mantenga testardamente e rigidamente in ambedue i due differenti schedule considerati "il medesimo ordine" e orientamento temporale di prevaricazione. Se il lucchetto rw nel primo schedule era vinto da una lettura preliminare a discapito della scrittura sfidante, e lo era anche in un'ulteriore sequenza esplorata, la natura dell'intersezione resta invariata e pacifica.
+
+Traslando il ragionamento logico alla definizione seriale si asserisce:
+Uno schedule intrecciato $S$ in analisi è categorizzato e promosso come **conflict-serializzabile** se il DBMS è in grado di reperire idealmente uno "schedule seriale" puro che risulti, per sua intrinseca struttura, rigorosamente *conflict-equivalente* ad esso.
+Questo preziosissimo e ristretto insieme elitario di pattern sicuri è denominato acronimicamente **CSR** (l'insieme degli schedule conflict-serializzabili).
+
+\subsection{La Relazione Gerarchica: CSR e VSR a confronto}
+Il rapporto insiemistico che si viene a instaurare tra la visione perfetta e quella filtrata dai conflitti si enuncia nel teorema cardine dell'efficienza:
+\textbf{Ogni schedule certificato come conflict-serializzabile (CSR) è imperativamente, matematicamente e logicamente view-serializzabile (VSR). La transizione contraria non è invece necessariamente vera e garantita}.
+
+In termini geometrici, la sfera ristretta dei CSR è interamente iscritta e contenuta nel vasto universo protetto dei VSR. L'algoritmo CSR, analizzando solo coppie di ostilità, ignora o censura pattern innocui ma elaborati che il VSR promuoverebbe.
+
+Il controesempio lampante della "non necessità" (cioè dell'esistenza di uno scarto non coperto da CSR) si rinviene nell'analisi dello schedule:
+$$S: r_1(x) w_2(x) w_1(x) w_3(x)$$
+Dal punto di vista dell'onnisciente view-serializzabilità, lo schedule sfuso $S$ risulta sbalorditivamente view-equivalente allo schedule puro e seriale $S_{ser}$: $r_1(x) w_1(x) w_2(x) w_3(x)$. A prescindere da come $w_1$ e $w_2$ abbiano faticato reciprocamente, i domini finali di base dati coincidono.
+Eppure, sottoponendo il medesimo schedule $S$ all'istruttoria severa e semplificata del controllore di Conflict-Serializzabilità, esso è marchiato drasticamente come **non conflict-serializzabile**. L'algoritmo CSR traccia un grafo e rintraccia il susseguirsi cieco di due distinte manovre: il conflitto innescato dalla coppia $r_1(x)$ seguita da $w_2(x)$ (fissando temporaneamente $t_1 \to t_2$), e la speculare invasione causata da $w_2(x)$ spiazzata da $w_1(x)$ (invertendo il senso vettoriale con $t_2 \to t_1$). La presenza di questa ambiguità o "ciclo" d'ordine, generante per definizione un disallineamento insanabile rispetto a qualsiasi possibile linearità imposta di uno schedule in fila indiana, causa l'irrevocabile rigetto preventivo dello schedule CSR, ancorché, nella sua sostanza profonda e asintotica, l'operazione non fosse di per sé malevola, certificando come la suffcienza algoritmica paghi lo scotto della rinuncia calcolata a discapito della completezza.
