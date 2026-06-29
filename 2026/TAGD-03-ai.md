@@ -7,7 +7,7 @@ template:
 ---
 # Consistenza nelle basi di dati distribuite
 
-I moderni sistemi di gestione di basi di dati (DBMS) devono affrontare la necessità di scalare per supportare i requisiti prestazionali e di carico delle applicazioni contemporanee. Esistono due direttrici principali per l'espansione: la scalabilità verticale (scale up) e la scalabilità orizzontale (scale out). La scalabilità verticale prevede il potenziamento del singolo server attraverso l'allocazione di risorse hardware superiori, quali CPU più potenti, una maggiore quantità di memoria primaria e dischi di capacità elevata; tuttavia, questa strategia incontra un limite fisico insormontabile nella quantità massima di risorse che possono essere concentrate in una singola macchina. La scalabilità orizzontale prevede invece l'aumento del numero di server fisici impiegati, utilizzando tecniche di partizionamento (sharding) e replicazione. In questo scenario, il limite principale è rappresentato dal sovraccarico di comunicazione (communication overhead) tra i nodi, ma non è l'unico vincolo.
+I moderni sistemi di gestione di basi di dati (DBMS) devono affrontare la necessità di scalare per supportare i requisiti prestazionali e di carico delle applicazioni contemporanee. Esistono due direttrici principali per l'espansione: la ==scalabilità verticale (scale up) e la scalabilità orizzontale (scale out).== La scalabilità **verticale** prevede il **potenziamento del singolo server** attraverso l'allocazione di risorse hardware superiori, quali CPU più potenti, una maggiore quantità di memoria primaria e dischi di capacità elevata; tuttavia, questa strategia incontra un limite fisico insormontabile nella quantità massima di risorse che possono essere concentrate in una singola macchina. La **scalabilità orizzontale prevede invece l'aumento del numero di server fisici impiegati**, utilizzando tecniche di partizionamento (sharding) e replicazione. In questo scenario, il limite principale è rappresentato dal sovraccarico di comunicazione (communication overhead) tra i nodi, ma non è l'unico vincolo.
 
 ## Partizionamento e Replicazione
 
@@ -16,13 +16,11 @@ L'architettura distribuita si fonda su due concetti chiave che possono essere co
 * **Partizionamento**: consiste nella suddivisione logica e fisica dei dati tra i vari nodi del sistema.
 * **Replicazione**: prevede la memorizzazione degli stessi dati su più nodi differenti.
 
-Uno schema esemplificativo vede una configurazione con sei macchine interconnesse. In un sistema puramente partizionato, la Machine 1 ospita i Chunk 1 e 2, la Machine 2 ospita i Chunk 3 e 4, e la Machine 3 ospita i Chunk 5 e 6. Quando si introduce la replicazione, i medesimi dati vengono duplicati su altre macchine: la Machine 4 replica il contenuto della Machine 1 (Chunk 1 e 2), la Machine 5 replica la Machine 2 (Chunk 3 e 4), e la Machine 6 replica la Machine 3 (Chunk 5 e 6).
-
-Mantenere la consistenza tra le repliche di una base di dati distribuita rappresenta una sfida complessa. Si consideri un esempio con due repliche del database dove il saldo iniziale è $Bal=1000$. Vengono generati due eventi concorrenti: l'Evento 1 aggiunge 1000 € e l'Evento 2 aggiunge un interesse del 5\%. Se sulla prima replica viene eseguito l'ordine (1, 2), il saldo finale sarà $(1000+1000) \times 1.05 = 2100$. Se sulla seconda replica viene eseguito l'ordine (2, 1), il saldo finale sarà $(1000 \times 1.05) + 1000 = 2050$. Questa divergenza evidenzia la difficoltà nel garantire la coerenza tra le copie.
+Mantenere la consistenza tra le repliche di una base di dati distribuita rappresenta una sfida complessa. 
 
 ## Sistemi distribuiti: il trade-off tra Safety e Liveness
 
-In un'elaborazione distribuita operante in un contesto non affidabile (unreliable), è impossibile garantire simultaneamente le proprietà di safety e liveness.
+In un'elaborazione distribuita operante in un contesto non affidabile, è impossibile garantire simultaneamente le proprietà di safety e liveness.
 
 * **Safety**: descrive il principio per cui "non succede niente di male". La consistenza, intesa come coerenza tra le copie, è una proprietà di safety: tutte le risposte fornite ai client devono essere corrette secondo una determinata nozione di correttezza.
 * **Liveness**: descrive il principio per cui "prima o poi succede qualcosa di buono". La disponibilità (availability) è una proprietà di liveness: ogni richiesta effettuata da un client deve ricevere, prima o poi, una risposta.
@@ -36,14 +34,14 @@ Il teorema CAP (introdotto da Eric Brewer) formalizza il trade-off tra tre propr
 2. **Disponibilità (Availability)**: ogni richiesta riceve una risposta (eventual response). Una risposta eccessivamente lenta può essere considerata errata o equivalente a un fault.
 3. **Tolleranza al partizionamento (Network partitioning)**: descrive la suddivisione della rete in gruppi che non possono comunicare tra loro. Poiché i messaggi possono essere ritardati o persi, l'inaffidabilità della comunicazione è un dato di fatto del sistema.
 
-L'enunciato del teorema CAP stabilisce che in un network soggetto a partizionamento, è impossibile implementare una memoria condivisa read/write atomica che fornisca risposta a ogni richiesta. La dimostrazione intuitiva prevede che se due nodi sono separati da un partizionamento, un aggiornamento su uno non può essere propagato all'altro. Di conseguenza, l'altro nodo potrà o non rispondere (violando la disponibilità) o rispondere con un dato obsoleto (violando la consistenza).
+==L'enunciato del teorema CAP stabilisce che in un network soggetto a partizionamento, è impossibile implementare una memoria condivisa read/write atomica che fornisca risposta a ogni richiesta.== La dimostrazione intuitiva prevede che se due nodi sono separati da un partizionamento, un aggiornamento su uno non può essere propagato all'altro. Di conseguenza, l'altro nodo potrà o non rispondere (violando la disponibilità) o rispondere con un dato obsoleto (violando la consistenza).
 
 ### Implicazioni pratiche e compromessi
 
 Nella costruzione di sistemi reali si adottano diversi compromessi:
 
-* **Best effort availability**: se la consistenza è un vincolo inderogabile, la disponibilità passa in secondo piano. Un esempio è il Google Lock Service (Chubby), che supporta GFS e Big Table. Fornisce consistenza forte tramite un design primary-backup; se i server sono partizionati, il servizio diventa non disponibile.
-* **Best effort consistency**: se la disponibilità e la velocità di risposta sono prioritarie, si tollerano inconsistenze temporanee. Esempi includono il caching di contenuti web (Akamai) e i sistemi basati su eventual consistency.
+* **Best effort availability**: ==se la consistenza è un vincolo inderogabile, la disponibilità passa in secondo piano==. Un esempio è il Google Lock Service (Chubby), che supporta GFS e Big Table. Fornisce consistenza forte tramite un design primary-backup; se i server sono partizionati, il servizio diventa non disponibile.
+* **Best effort consistency**: ==se la disponibilità e la velocità di risposta sono prioritarie, si tollerano inconsistenze **temporanee**==. Esempi includono il caching di contenuti web (Akamai) e i sistemi basati su eventual consistency.
 
 ### Consistenza basata su Quorum
 
@@ -70,11 +68,11 @@ Il consenso riguarda la capacità di un insieme di nodi ${G_{1}, \dots, G_{n}}$,
 * **Validity**: il valore di output deve essere stato proposto come input da almeno un nodo (safety).
 * **Termination**: ogni nodo deve prima o poi restituire un valore (liveness).
 
-Gli algoritmi di consenso assicurano la safety ritornando sempre risultati corretti e garantiscono la liveness se la maggioranza dei nodi è attiva, anche in presenza di ritardi, partizionamenti o riordinamento di messaggi.
+==Gli algoritmi di consenso assicurano la safety ritornando sempre risultati corretti e garantiscono la liveness se la maggioranza dei nodi è attiva, anche in presenza di ritardi, partizionamenti o riordinamento di messaggi.==
 
 ### Macchine a Stati Replicate (Replicated State Machine)
 
-Gli algoritmi di consenso si basano sul concetto di macchina a stati replicata. Ogni nodo possiede una copia identica di una macchina a stati e opera su un log replicato (replicated log), ovvero una sequenza di istruzioni. Poiché le macchine sono deterministiche, se applicano gli stessi comandi nello stesso ordine dal medesimo log, raggiungeranno lo stesso stato. L'algoritmo di consenso ha la responsabilità di mantenere allineati i log tra i nodi attraverso un modulo di consenso che riceve i comandi dai client e comunica con gli altri nodi per far convergere i log.
+Gli algoritmi di consenso si basano sul concetto di macchina a stati replicata. ==Ogni nodo possiede una copia identica di una macchina a stati e opera su un log replicato== (replicated log), ovvero una sequenza di istruzioni. Poiché le macchine sono deterministiche, se applicano gli stessi comandi nello stesso ordine dal medesimo log, raggiungeranno lo stesso stato. L'algoritmo di consenso ha la responsabilità di mantenere allineati i log tra i nodi attraverso un modulo di consenso che riceve i comandi dai client e comunica con gli altri nodi per far convergere i log.
 
 ## L'algoritmo RAFT
 
@@ -92,7 +90,7 @@ Un cluster RAFT solitamente contiene 5 server per tollerare 2 fallimenti simulta
 * **Follower**: stato passivo; risponde alle richieste dei leader o dei candidate.
 * **Candidate**: stato temporaneo utilizzato durante le elezioni.
 
-Il tempo è suddiviso in "terms" di lunghezza arbitraria, ognuno dei quali inizia con un'elezione. I term agiscono come un orologio logico (logical clock) per individuare informazioni obsolete. Se un server scopre di avere un progressivo di term inferiore a un altro, si aggiorna; se un leader o un candidate scopre un term superiore, torna immediatamente allo stato di follower. Le richieste riferite a term superati vengono rigettate.
+==Il tempo è suddiviso in "terms" di lunghezza arbitraria, ognuno dei quali inizia con un'elezione.== I term agiscono come un orologio logico (logical clock) per individuare informazioni obsolete. Se un server scopre di avere un progressivo di term inferiore a un altro, si aggiorna; se un leader o un candidate scopre un term superiore, torna immediatamente allo stato di follower. Le richieste riferite a term superati vengono rigettate.
 
 ### Comunicazione e Invarianti
 
@@ -111,19 +109,19 @@ RAFT si fonda su rigide invarianti per mantenere l'allineamento:
 
 ### Processo di Elezione e Replicazione
 
-Un server inizia come follower. Se non riceve heartbeat entro un "election timeout", diventa candidate, incrementa il term, vota per se stesso e invia RequestVote. Vince chi ottiene la maggioranza dei voti nel cluster. Per evitare split vote infiniti (dove nessuno ottiene la maggioranza), si usa un "randomized election timeout".
+Un server **inizia** come follower. Se **non** riceve heartbeat entro un "election timeout", diventa candidate, incrementa il term, vota per se stesso e invia RequestVote. Vince chi ottiene la maggioranza dei voti nel cluster. Per evitare split vote infiniti (dove nessuno ottiene la maggioranza), si usa un "randomized election timeout".
 
-Una volta eletto, il leader riceve comandi dai client e li aggiunge al proprio log. Invia AppendEntries in parallelo. Una entry è considerata "committed" quando è replicata sulla maggioranza dei server. Il commit di una entry implica il commit automatico di tutte le entry precedenti nel log. Il leader include l'indice committato più alto in ogni AppendEntries per informare i follower.
+==Una volta eletto, il leader riceve comandi dai client e li aggiunge al proprio log. Invia AppendEntries in parallelo. Una entry è considerata "committed" quando è replicata sulla maggioranza dei server.== Il commit di una entry implica il commit automatico di tutte le entry precedenti nel log. Il leader include l'indice committato più alto in ogni AppendEntries per informare i follower.
 
-In caso di inconsistenze (disallineamento dei log dovuto a crash), il leader forza i follower a uniformarsi al suo log. Individua l'ultima entry coincidente tramite un consistency check, cancella le entry successive nel follower e invia le proprie. Il leader mantiene un `nextIndex` per ogni follower per gestire questo riallineamento.
+==In caso di inconsistenze (disallineamento dei log dovuto a crash), il leader forza i follower a uniformarsi al suo log==. Individua l'ultima entry coincidente tramite un consistency check, cancella le entry successive nel follower e invia le proprie. Il leader mantiene un `nextIndex` per ogni follower per gestire questo riallineamento.
 
 ### Restrizioni e Safety
 
-Per garantire la safety, RAFT impone una restrizione all'elezione: un votante nega il voto a un candidato se il log del candidato è meno aggiornato del proprio. L'aggiornamento si confronta controllando prima il numero del term e poi l'indice dell'ultima entry. Inoltre, un leader non effettua mai il commit di una entry di un term precedente contando solo le repliche; il commit avviene solo per le entry del term corrente, trascinando con sé per log matching le entry precedenti.
+==Per garantire la safety, RAFT impone una restrizione all'elezione: un votante nega il voto a un candidato se il log del candidato è meno aggiornato del proprio.== L'aggiornamento si confronta controllando prima il numero del term e poi l'indice dell'ultima entry. Inoltre, un leader non effettua mai il commit di una entry di un term precedente contando solo le repliche; il commit avviene solo per le entry del term corrente, trascinando con sé per log matching le entry precedenti.
 
 ### Disponibilità e Timing
 
-Mentre la safety è indipendente dal tempo, la disponibilità dipende dal rispetto della relazione: $broadcastTime \ll electionTimeout \ll MTBF$ (Mean Time Between Failures). Se i messaggi sono troppo lenti rispetto ai crash, il sistema non riuscirà a eleggere un leader stabile e non farà progressi.
+Mentre la safety è indipendente dal tempo, la disponibilità dipende dal rispetto della relazione: $broadcastTime \ll electionTimeout \ll MTBF$ (Mean Time Between Failures). ==Se i messaggi sono troppo lenti rispetto ai crash, il sistema non riuscirà a eleggere un leader stabile e non farà progressi.==
 
 # Quality of Service (QoS) nelle Architetture per la Gestione dei Dati
 
@@ -157,7 +155,7 @@ Il throughput rappresenta il numero di richieste evase con successo dal sistema 
 
 Si consideri un disco in un sistema OLTP in cui un'operazione di I/O impiega mediamente $10ms$ ($0.01s$). Se il disco è costantemente occupato, ovvero la sua utilizzazione è pari al $100\%$, il throughput massimo è calcolabile come: $Throughput_{max} = \frac{1}{0.01s} = 100 \text{ IOPS}$
 
-Se il carico di lavoro (workload) genera un tasso di richieste di $60 \text{ IOPS}$, l'utilizzazione della risorsa sarà proporzionalmente del $60\%$. In una prima approssimazione, possiamo stabilire che: $throughput = \min(capacità, workload)$
+Se il carico di lavoro (workload) genera un tasso di richieste di $60 \text{ IOPS}$, l'utilizzazione della risorsa sarà proporzionalmente del $60\%$. In una prima approssimazione, possiamo stabilire che: $throughput = \min(capacity, workload)$
 
 Tuttavia, se il workload supera la capacità nominale (ad esempio $150 \text{ IOPS}$ a fronte di una capacità di $100$), il sistema entra in saturazione. In molti sistemi reali, superata la soglia di saturazione, si verifica il fenomeno del **thrashing**: invece di stabilizzarsi sul throughput massimo (andamento "no thrashing"), le prestazioni crollano drasticamente a causa dell'eccessivo overhead di gestione delle code e dei conflitti tra le richieste.
 
@@ -222,11 +220,11 @@ Un modello di un sistema è un'astrazione della realtà. Il livello di dettaglio
 
 ### Modelli Simulativi
 
-I modelli simulativi si basano su programmi software che riproducono il comportamento dei diversi componenti del sistema. Il carico di lavoro (workload) può essere riprodotto partendo da una traccia reale, da un benchmark sintetico o generato seguendo specifiche distribuzioni di probabilità. All'interno del simulatore, i componenti sono arricchiti con contatori per le metriche di prestazione. Al termine della simulazione, questi dati vengono usati per calcolare statistiche. Ad esempio, il tempo di risposta medio di un componente si ottiene tramite la formula $T = \frac{\sum_{i=1}^{nt} T_i}{nt}$, dove $T$ rappresenta il tempo di risposta medio, $T_i$ è il tempo di risposta della singola richiesta $i$ e $nt$ è il numero totale di richieste processate. Questi modelli permettono studi molto dettagliati e accurati, ma sono costosi e complessi da realizzare proprio a causa dell'alto livello di dettaglio richiesto.
+==I modelli simulativi si basano su programmi software che riproducono il comportamento dei diversi componenti del sistema.== Il carico di lavoro (workload) può essere riprodotto partendo da una traccia reale, da un benchmark sintetico o generato seguendo specifiche distribuzioni di probabilità. All'interno del simulatore, i componenti sono arricchiti con contatori per le metriche di prestazione. Al termine della simulazione, questi dati vengono usati per calcolare statistiche. Ad esempio, il tempo di risposta medio di un componente si ottiene tramite la formula $T = \frac{\sum_{i=1}^{nt} T_i}{nt}$, dove $T$ rappresenta il tempo di risposta medio, $T_i$ è il tempo di risposta della singola richiesta $i$ e $nt$ è il numero totale di richieste processate. Questi modelli permettono studi molto dettagliati e accurati, ma sono costosi e complessi da realizzare proprio a causa dell'alto livello di dettaglio richiesto.
 
 ### Modelli Analitici
 
-I modelli analitici sono costituiti da insiemi di formule matematiche o algoritmi che calcolano le misure di prestazione in funzione del workload. Per rimanere matematicamente trattabili, sono solitamente meno dettagliati dei modelli simulativi e, di conseguenza, possono risultare meno accurati. Tuttavia, sono estremamente più efficienti da eseguire e richiedono parametri di input più semplici da reperire grazie al loro maggior livello di astrazione.
+==I modelli analitici sono costituiti da insiemi di formule matematiche o algoritmi che calcolano le misure di prestazione in funzione del workload.== Per rimanere matematicamente trattabili, sono solitamente meno dettagliati dei modelli simulativi e, di conseguenza, possono risultare meno accurati. Tuttavia, sono estremamente più efficienti da eseguire e richiedono parametri di input più semplici da reperire grazie al loro maggior livello di astrazione.
 
 Nella pratica ingegneristica e nel capacity planning si adotta spesso un approccio ibrido: si utilizza inizialmente un modello simulativo per verificare la validità di un modello analitico. Se i risultati sono soddisfacenti, si prosegue con il modello analitico, accettando un margine d'errore che in questo ambito può arrivare fino al $30\%$ senza inficiare la bontà della pianificazione.
 
@@ -256,7 +254,7 @@ L'adozione di un modello QN multi-classe è necessaria quando:
 
 ### Classi Aperte
 
-Una classe di workload è definita aperta se la sua intensità è specificata tramite un tasso di arrivi. In questo caso, il numero di clienti nel sistema è potenzialmente illimitato e il tasso di arrivo è solitamente indipendente dal numero di transazioni già in gestione. In equilibrio, il throughput è uguale al tasso di arrivo. Riprendendo l'esempio precedente con un tasso totale di $1.5 \text{ tps}$:
+==Una classe di workload è definita aperta se la sua intensità è specificata tramite un tasso di arrivi. In questo caso, il numero di clienti nel sistema è potenzialmente illimitato e il tasso di arrivo è solitamente indipendente dal numero di transazioni già in gestione.== In equilibrio, il throughput è uguale al tasso di arrivo. Riprendendo l'esempio precedente con un tasso totale di $1.5 \text{ tps}$:
 
 * Tasso classe "semplice": $1.5 \times 0.45 = 0.675 \text{ tps}$
 * Tasso classe "medio": $1.5 \times 0.25 = 0.375 \text{ tps}$
@@ -264,7 +262,7 @@ Una classe di workload è definita aperta se la sua intensità è specificata tr
 
 ### Classi Chiuse
 
-Una classe è definita chiusa quando la sua intensità è specificata dalla popolazione fissa all'interno del sistema. Si pensi a dei job batch eseguiti di notte: se la popolazione è fissata a 5, non appena un job termina, un nuovo job entra nel sistema, mantenendo il numero di richieste concorrenti costante. Qui il numero di clienti è limitato e conosciuto, mentre il throughput è un parametro di output che si ottiene risolvendo il modello.
+==Una classe è definita chiusa quando la sua intensità è specificata dalla popolazione fissa all'interno del sistema.== Si pensi a dei job batch eseguiti di notte: se la popolazione è fissata a 5, non appena un job termina, un nuovo job entra nel sistema, mantenendo il numero di richieste concorrenti costante. Qui il numero di clienti è limitato e conosciuto, mentre il throughput è un parametro di output che si ottiene risolvendo il modello.
 
 ### Modello Misto
 
@@ -279,7 +277,7 @@ Gli obiettivi di prestazione e i requisiti di qualità possono essere formalizza
 * **Throughput**: es. minimo 2000 pagine al secondo.
 * **Penali**: sanzioni previste in caso di mancato raggiungimento dei requisiti.
 
-L'interazione umana introduce ritardi naturali (think time) dovuti alla lettura dei contenuti. Questo può essere rappresentato nel modello come una risorsa di tipo **Delay**: un centro senza coda dove le richieste vengono servite immediatamente, simulando componenti dedicati o situazioni in cui le risorse sono sovrabbondanti rispetto alle richieste.
+==L'interazione umana introduce ritardi naturali (think time) dovuti alla lettura dei contenuti. Questo può essere rappresentato nel modello come una risorsa di tipo **Delay**==: un centro senza coda dove le richieste vengono servite immediatamente, simulando componenti dedicati o situazioni in cui le risorse sono sovrabbondanti rispetto alle richieste.
 
 Al contrario, risorse come una LAN condivisa sono **Load-Dependent**: la velocità di trasmissione percepita dipende dal carico istantaneo generato dagli altri utenti. In questi centri, il tasso di servizio è una funzione del numero di richieste attualmente in coda.
 
@@ -300,7 +298,7 @@ Ogni centro di servizio (tranne i delay) deve gestire l'ordine in cui le richies
 
 ## Class Switching
 
-In alcuni scenari, il workload associato a un utente cambia natura nel tempo. Si consideri il processo di autenticazione: un utente inizia in stato "Disconnected", invia una richiesta di autenticazione ("request authentication") passando allo stato "Connected and Authenticating". Se l'autenticazione fallisce ("authentication denied"), torna a "Disconnected". Se ha successo ("successful authentication"), passa allo stato "Connected and Authenticated" per eseguire le interrogazioni al DB. Al termine della transazione ("end of transaction"), torna nuovamente disconnesso. Questo dinamismo viene modellato tramite il **Class Switching**, che aggiunge probabilità di transizione tra classi differenti all'interno della rete di code.
+==In alcuni scenari, il workload associato a un utente cambia natura nel tempo.== Si consideri il processo di autenticazione: un utente inizia in stato "Disconnected", invia una richiesta di autenticazione ("request authentication") passando allo stato "Connected and Authenticating". Se l'autenticazione fallisce ("authentication denied"), torna a "Disconnected". Se ha successo ("successful authentication"), passa allo stato "Connected and Authenticated" per eseguire le interrogazioni al DB. Al termine della transazione ("end of transaction"), torna nuovamente disconnesso. ==Questo dinamismo viene modellato tramite il **Class Switching**, che aggiunge probabilità di transizione tra classi differenti all'interno della rete di code.==
 
 # Modellamento di sistemi: reti di code (QN)
 
@@ -365,13 +363,13 @@ L'analisi dei sistemi informatici richiede strumenti rigorosi per rispondere a i
 
 Il punto di partenza dell'analisi operazionale consiste nell'identificazione di variabili che possono essere misurate direttamente durante un periodo di osservazione del sistema. Si definiscono le seguenti quantità fondamentali:
 
-* $T$: rappresenta la lunghezza totale del periodo di osservazione espresso in unità di tempo (ad esempio, secondi o ore).
-* $K$: indica il numero totale di risorse fisiche o logiche che compongono il sistema oggetto di studio.
-* $B_{i}$: è il tempo in cui la specifica risorsa $i$ risulta occupata (busy) durante l'intero intervallo di osservazione $T$.
-* $A_{i}$: rappresenta il numero totale di richieste di servizio, o arrivi, registrati presso la risorsa $i$ nell'intervallo $T$.
-* $A_{0}$: indica il numero totale di richieste che sono entrate nel sistema complessivo durante il periodo $T$.
-* $C_{i}$: esprime il numero totale di richieste di servizio completate ed evase dalla risorsa $i$ nell'intervallo $T$.
-* $C_{0}$: rappresenta il numero totale di richieste che hanno completato il loro intero ciclo di elaborazione e sono state evase dal sistema nel periodo $T$.
+* $T$: rappresenta la **lunghezza totale del periodo di osservazione** espresso in unità di tempo (ad esempio, secondi o ore).
+* $K$: indica il **numero totale di risorse fisiche o logiche** che compongono il sistema oggetto di studio.
+* $B_{i}$: è il **tempo in cui la specifica risorsa $i$ risulta occupata** (busy) durante l'intero intervallo di osservazione $T$.
+* $A_{i}$: rappresenta il **numero totale di richieste di servizio**, o arrivi, registrati presso la risorsa $i$ nell'intervallo $T$.
+* $A_{0}$: indica il **numero totale di richieste che sono entrate nel sistema complessivo** durante il periodo $T$.
+* $C_{i}$: esprime il **numero totale di richieste di servizio completate ed evase** dalla risorsa $i$ nell'intervallo $T$.
+* $C_{0}$: rappresenta il **numero totale di richieste che hanno completato il loro intero ciclo di elaborazione** e sono state evase dal sistema nel periodo $T$.
 
 Queste variabili operazionali costituiscono la base per derivare metriche prestazionali più complesse.
 
@@ -379,10 +377,10 @@ Queste variabili operazionali costituiscono la base per derivare metriche presta
 
 A partire dalle grandezze misurate, è possibile calcolare diversi parametri che descrivono l'efficienza e il comportamento del sistema:
 
-1. **Tempo medio di servizio** ($S_{i}$): Definito come il rapporto tra il tempo di occupazione della risorsa e il numero di richieste evase dalla stessa, ovvero $S_{i}=\frac{B_{i}}{C_{i}}$. Esso rappresenta il tempo medio richiesto dalla risorsa $i$ per processare una singola richiesta, escludendo il tempo trascorso in coda.
-2. **Utilizzazione della risorsa** ($U_{i}$): Rappresenta la frazione di tempo in cui la risorsa $i$ è stata attiva rispetto al tempo totale di osservazione, calcolata come $U_{i}=\frac{B_{i}}{T}$. Solitamente viene espressa in percentuale.
-3. **Throughput della risorsa** ($X_{i}$): Indica il tasso di completamento delle richieste per la risorsa $i$, calcolato come $X_{i}=\frac{C_{i}}{T}$.
-4. **Tasso degli arrivi alla risorsa** ($i$): Definito come $\lambda_{i}=\frac{A_{i}}{T}$, indica la frequenza con cui nuove richieste giungono alla risorsa $i$.
+1. **Tempo medio di servizio** ($S_{i}$): Definito come il ==rapporto tra il tempo di occupazione della risorsa e il numero di richieste evase dalla stessa==, ovvero $S_{i}=\frac{B_{i}}{C_{i}}$. Esso rappresenta il tempo medio richiesto dalla risorsa $i$ per processare una singola richiesta, escludendo il tempo trascorso in coda.
+2. **Utilizzazione della risorsa** ($U_{i}$): Rappresenta la ==frazione di tempo in cui la risorsa $i$ è stata attiva== rispetto al tempo totale di osservazione, calcolata come $U_{i}=\frac{B_{i}}{T}$. Solitamente viene espressa in percentuale.
+3. **Throughput della risorsa** ($X_{i}$): Indica il ==tasso di completamento delle richieste== per la risorsa $i$, calcolato come $X_{i}=\frac{C_{i}}{T}$.
+4. **Tasso degli arrivi alla risorsa** ($\lambda_{i}=\frac{A_{i}}{T}$): Indica la frequenza con cui nuove richieste giungono alla risorsa $i$.
 5. **Throughput del sistema** ($X_{0}$): Rappresenta la produttività globale del sistema, ovvero il numero di transazioni completate nell'unità di tempo, calcolato come $X_{0}=\frac{C_{0}}{T}$.
 
 ## Esempio pratico di analisi operazionale
@@ -405,13 +403,13 @@ Le leggi operazionali definiscono le relazioni matematiche stabili tra le variab
 
 Partendo dalla definizione di utilizzazione $U_{i}=\frac{B_{i}}{T}$, è possibile moltiplicare numeratore e denominatore per $C_{i}$, ottenendo $U_{i}=\frac{B_{i} \times C_{i}}{C_{i} \times T}$. Riconoscendo le definizioni di $S_{i}$ e $X_{i}$, si ricava la legge fondamentale: $U_{i}=S_{i} \times X_{i}$
 
-Questa legge stabilisce che l'utilizzazione di una risorsa è pari al prodotto tra il tempo medio di servizio e il throughput della risorsa stessa. In condizioni di equilibrio, dove il numero di arrivi è uguale a quello dei completamenti ($A_{i}=C_{i}$), ne consegue che $\lambda_{i}=X_{i}$ e quindi $U_{i}=S_{i} \times \lambda_{i}$. Nel caso di una risorsa dotata di $m$ server (coda multiprocessore), la formula diventa: $U_{i}=\frac{S_{i} \times X_{i}}{m}$ In un contesto multi-classe, l'utilizzazione per una specifica classe $r$ è $U_{i,r}=\frac{S_{i,r} \times X_{i,r}}{m}$.
+==Questa legge stabilisce che l'utilizzazione di una risorsa è pari al prodotto tra il tempo medio di servizio e il throughput della risorsa stessa.== In condizioni di equilibrio, dove il numero di arrivi è uguale a quello dei completamenti ($A_{i}=C_{i}$), ne consegue che $\lambda_{i}=X_{i}$ e quindi $U_{i}=S_{i} \times \lambda_{i}$. Nel caso di una risorsa dotata di $m$ server (coda multiprocessore), la formula diventa: $U_{i}=\frac{S_{i} \times X_{i}}{m}$ In un contesto multi-classe, l'utilizzazione per una specifica classe $r$ è $U_{i,r}=\frac{S_{i,r} \times X_{i,r}}{m}$.
 
 Un esempio applicativo riguarda un canale di comunicazione a $56Kbps$ che trasmette pacchetti da $1500bytes$ ($12000bits$) al tasso di $3pps$ (pacchetti al secondo). Identifichiamo il throughput $X_{0}=3pps$. Il tempo di servizio $S_{0}$ è il tempo di trasmissione del singolo pacchetto: $S_{0}=\frac{12000}{56000}=0.214s$. L'utilizzazione del link è dunque $U_{0}=0.214 \times 3=0.642=64.2\%$.
 
 ### Service Demand e la sua legge
 
-Il Service Demand ($D_{i}$) rappresenta il tempo totale medio speso da una singola richiesta presso la risorsa $i$ durante l'intero ciclo di vita nel sistema. Poiché una richiesta può visitare una risorsa più volte prima di essere completata, il service demand è la somma dei singoli tempi di visita. Per definizione, esso non include il tempo trascorso in coda.
+==Il Service Demand ($D_{i}$) rappresenta il tempo totale medio speso da una singola richiesta presso la risorsa $i$ durante l'intero ciclo di vita nel sistema. Poiché una richiesta può visitare una risorsa più volte prima di essere completata, il service demand è la somma dei singoli tempi di visita. Per definizione, esso non include il tempo trascorso in coda.==
 
 Per calcolare il $D_{i}$ si utilizza la Service Demand Law: $D_{i}=\frac{B_{i}}{C_{0}}=\frac{U_{i} \times T}{C_{0}}=\frac{U_{i}}{C_{0}/T}=\frac{U_{i}}{X_{0}}$
 
@@ -433,13 +431,13 @@ I service demand ($D_{i}=\frac{U_{i}}{X_{0}}$), assumendo $U_{CPU}=35\%$, sono: 
 
 ### Legge del flusso forzato (Forced Flow Law)
 
-Questa legge lega il throughput di una singola risorsa $i$ al throughput complessivo del sistema $X_{0}$ tramite il numero medio di visite $V_{i}$: $X_{i}=X_{0} \times V_{i}$
+==Questa legge lega il throughput di una singola risorsa $i$ al throughput complessivo del sistema $X_{0}$ tramite il numero medio di visite $V_{i}$: $X_{i}=X_{0} \times V_{i}$==.
 
 In termini multi-classe, abbiamo $X_{i,r}=X_{0,r} \times V_{i,r}$. Riprendendo l'esempio dei tre dischi con $X_{0}=3.8tps$, il numero medio di visite per ogni disco si calcola come $V_{i}=\frac{X_{i}}{X_{0}}$: $V_{2}=\frac{32}{3.8}=8.4$ visite; $V_{3}=\frac{36}{3.8}=9.5$ visite; $V_{4}=\frac{50}{3.8}=13.2$ visite.
 
 ## Legge di Little (Little's Law)
 
-La legge di Little è una relazione estremamente generale che lega il numero medio di clienti nel sistema ($N$), il tempo medio di permanenza ($R$) e il tasso di arrivo/completamento ($X$). Essa è applicabile a qualsiasi "scatola nera" in cui i clienti non vengano né creati né distrutti.
+==La legge di Little è una relazione estremamente generale che lega il numero medio di clienti nel sistema ($N$), il tempo medio di permanenza ($R$) e il tasso di arrivo/completamento ($X$). Essa è applicabile a qualsiasi "scatola nera" in cui i clienti non vengano né creati né distrutti.==
 
 Un esempio intuitivo è quello di un pub: se entra un nuovo cliente ogni ora e la permanenza media è di $3.5$ ore, in media ci saranno $3.5 \times 1 = 3.5$ clienti nel pub.
 
@@ -464,10 +462,6 @@ All'interno di questo modello, gli utenti alternano due fasi distinte:
 Per analizzare il sistema, definiamo $\bar{M}$ come il numero medio di utenti che si trovano nella fase di riflessione (think phase) e $\bar{N}$ come il numero medio di utenti in attesa di risposta. La popolazione totale dei client è data dalla somma dei due stati: $M = \bar{M} + \bar{N}$. Applicando la Legge di Little a ciascuna fase, otteniamo che $\bar{M} = X_{0} \times Z$ (dove $X_{0}$ è il throughput del sistema) e $\bar{N} = X_{0} \times R$. Sostituendo queste espressioni nell'equazione della popolazione totale, si ricava $M = X_{0} \times Z + X_{0} \times R$, che può essere riscritta come $M = X_{0}(Z + R)$. Attraverso passaggi algebrici, si giunge alla formulazione finale della **Legge del tempo di risposta interattivo**: $R = \frac{M}{X_{0}} - Z$
 
 ## Esempi applicativi delle leggi operazionali
-
-### Esempio 7: Calcolo del tempo di risposta medio
-
-Si consideri un sistema monitorato per un'ora in cui vengono evase $7200$ richieste inviate da $40$ client con un think time medio di $15$ secondi. Per calcolare il tempo di risposta medio $R$, determiniamo prima il throughput del sistema: $X_{0} = \frac{7200}{3600} = 2 \text{ req/s}$ Applicando la legge del tempo di risposta interattivo: $R = \frac{40}{2} - 15 = 20 - 15 = 5s$
 
 ### Esempio 8: Calcolo del tempo di risposta con vincoli sulle risorse
 
@@ -527,3 +521,111 @@ Si consideri un sistema composto da una CPU (centro 1) e tre dischi (centri 2, 3
    * Utilizzazioni ($U = S \times X$): $U_{CPU}(1) = 0.092 \times 2.375 = 0.21$; $U_{DISK1}(1) = 0.18$; $U_{DISK2}(1) = 0.25$; $U_{DISK3}(1) = 0.33$.
    * Numero medio di job: $n_{CPU}(1) = 2.375 \times 0.092 = 0.21 \text{ job}$; $n_{DISK1}(1) = 0.18 \text{ job}$; $n_{DISK2}(1) = 0.25 \text{ job}$; $n_{DISK3}(1) = 0.33 \text{ job}$.
 
+# Analisi dei limiti delle prestazioni nei sistemi di gestione dati
+
+Lo studio dei limiti delle prestazioni rappresenta una fase cruciale nel capacity planning, permettendo di determinare i confini teorici entro cui un sistema può operare. Attraverso gli strumenti dell'analisi operazionale, è possibile calcolare l'estremo superiore (_upper bound_) sul throughput e l'estremo inferiore (_lower bound_) sul tempo di risposta. Il fondamento di questa analisi risiede nell'individuazione della risorsa "collo di bottiglia" (_bottleneck_), definita come la risorsa che presenta la più alta utilizzazione o, in modo equivalente, il più alto service demand ($D_{i}$).
+
+## Rappresentazione del sistema e identificazione del bottleneck
+
+Si consideri un modello di rete di code composto da quattro nodi principali: un'unità centrale di elaborazione (CPU) e tre unità di memorizzazione secondaria (DISK 1, DISK 2, DISK 3). La struttura del flusso è la seguente: le richieste entrano nel sistema e si accodano presso la CPU (Nodo 1). Al termine dell'elaborazione della CPU, il flusso si divide equamente o secondo probabilità specifiche verso le code dei tre dischi: DISK 1 (Nodo 2), DISK 2 (Nodo 3) e DISK 3 (Nodo 4). Una volta servite dai dischi, le richieste tornano alla coda della CPU per proseguire il ciclo fino al completamento.
+
+In un sistema di questo tipo, i service demand calcolati possono essere, ad esempio:
+
+* $D_{CPU} = 0.092s$
+* $D_{DISK1} = 0.079s$
+* $D_{DISK2} = 0.108s$
+* $D_{DISK3} = 0.142s$
+
+Poiché il DISK 3 presenta il valore di $D_{i}$ **più elevato**, esso rappresenta il **collo di bottiglia** del sistema.
+
+## Calcolo del Throughput Massimo
+
+Sulla base della _Service Demand Law_, l'utilizzazione di una risorsa è data dal prodotto tra il service demand e il throughput del sistema: $U_{i} = D_{i} \times X_{0}$. Da questa relazione si evince che il throughput per un determinato livello di utilizzazione è $X_{0} = U_{i} / D_{i}$. Il throughput massimo teorico ($X_{0,max}$) si ottiene quando la risorsa bottleneck raggiunge il $100%$ di utilizzazione ($U_{i} = 1$).
+
+Riprendendo l'esempio precedente, il throughput massimo è limitato dal DISK 3: $X_{0} \le \frac{1}{0.142} = 7.042 \text{ tps}$
+
+Graficamente, se rappresentiamo l'utilizzazione in funzione del throughput per le quattro risorse, otterremo quattro rette passanti per l'origine con pendenze diverse. La retta del DISK 3 (il bottleneck) è quella più ripida e raggiungerà il valore $U = 1.0$ per prima, determinando il limite invalicabile per il throughput del sistema.
+
+### Upper Bound asintotico sul Throughput
+
+In condizioni di carico elevato (_heavy load_), il sistema tende alla saturazione e le richieste iniziano ad accumularsi presso la risorsa bottleneck. La relazione generale che definisce l'upper bound asintotico è: $X_{0} = \frac{U_{i}}{D_{i}} \le \frac{1}{D_{i}} \forall i$ In forma compatta, considerando l'intero sistema: $X_{0} \le \frac{1}{\max D_{i}}$
+
+In condizioni di carico leggero (_light load_), si ipotizza che nessuna richiesta debba mai attendere in coda. In questo scenario ideale, il tempo di risposta $R$ è semplicemente la somma dei service demand di tutte le risorse: $R = \sum_{i} D_{i}$. Applicando la Legge di Little ($N = R \times X_{0}$), dove $N$ è il numero di transazioni concorrenti, otteniamo: $N \ge \sum_{i} D_{i} \times X_{0} \implies X_{0} \le \frac{N}{\sum_{i} D_{i}}$
+
+Combinando i due limiti (carico leggero e carico pesante), otteniamo l'upper bound complessivo sul throughput: $X_{0} \le \min [\frac{N}{\sum_{i} D_{i}}, \frac{1}{\max D_{i}}]$
+
+## Ottimizzazione delle prestazioni: Upgrade e Bilanciamento
+
+L'analisi dei limiti permette di valutare l'impatto di possibili miglioramenti hardware o software.
+
+### Sostituzione della risorsa bottleneck
+
+Se nel sistema precedente sostituiamo il DISK 3 con un modello due volte più veloce, il suo service demand si dimezza: $0.142s \to 0.071s$. In questa nuova configurazione, la risorsa bottleneck diventa il DISK 2 con $D_{DISK2} = 0.108s$. Il nuovo limite di throughput sarà: $X_{0,new} \le \frac{1}{0.108} = 9.259 \text{ tps}$ Questo intervento hardware produce un aumento del throughput massimo del $32%$.
+
+### Bilanciamento del carico (Ribilanciamento)
+
+Spesso le risorse disco sono sbilanciate a causa di una cattiva distribuzione dei dati. Se fosse possibile bilanciare perfettamente il carico sui tre dischi dell'Esempio 2, il nuovo service demand per ciascun disco sarebbe la media dei tre originali: $D_{DISKS} = \frac{0.079 + 0.108 + 0.142}{3} = 0.1097s$ Il nuovo throughput massimo del sistema sarebbe limitato da questo valore medio (assumendo che sia superiore a quello della CPU): $X_{0} = \frac{1}{0.1097} = 9.12 \text{ tps}$ In questo caso, il solo ribilanciamento logico dei dati permette un incremento del throughput del $29.5%$ senza acquisto di nuovo hardware.
+
+## Lower Bound sul tempo di risposta
+
+Il tempo di risposta minimo possibile ($R_{min}$) può essere derivato dalla Legge di Little integrando i limiti sul throughput precedentemente calcolati: $R = \frac{N}{X_{0}}$ Sostituendo $X_{0}$ con il suo upper bound, otteniamo: $R \ge \frac{N}{\min [\frac{N}{\sum_{i} D_{i}}, \frac{1}{\max D_{i}}]} = \max [\sum_{i} D_{i}, N \times \max D_{i}]$
+
+Per il sistema dell'Esempio 2, il limite inferiore del tempo di risposta è: $R \ge \max [0.421, N \times 0.142]$
+
+Graficamente, questo limite è rappresentato da una curva che per piccoli valori di $N$ è orizzontale (pari a $\sum D_{i}$), mentre per valori elevati di $N$ diventa una retta crescente con pendenza pari al service demand del bottleneck ($\max D_{i}$). Il tempo di risposta reale del sistema sarà sempre superiore a questa spezzata.
+
+## Analisi Multi-classe: Esempio di un Web Server
+
+Si consideri un web server (CPU + disco) monitorato per un'ora ($3600s$). Il carico è composto da due classi:
+
+* File HTML: $14040$ richieste, dimensione media $3000$ byte (3 blocchi da 1000 byte).
+* Immagini: $1034$ richieste, dimensione media $15000$ byte (15 blocchi da 1000 byte).
+
+I parametri tecnologici sono:
+
+* Service demand disco: $0.012s$ per blocco.
+* Service demand CPU: $D_{CPU} = 0.008 + 0.002 \times RequestSize$ (in blocchi).
+
+### Parametrizzazione del modello
+
+Il sistema viene modellato come una rete di code (QN) aperta e multi-classe. I tassi di arrivo per classe sono: 
+
+- $\lambda_{HTML} = \frac{14040}{3600} = 3.9 \text{ req/s}$
+- $\lambda_{IMG} = \frac{1034}{3600} = 0.29 \text{ req/s}$
+
+I service demand per classe sono: 
+
+- $D_{CPU,HTML} = 0.008 + 0.002 \times 3 = 0.014s$
+- $D_{CPU,IMG} = 0.008 + 0.002 \times 15 = 0.038s$
+- $D_{DISK,HTML} = 0.012 \times 3 = 0.036s$
+- $D_{DISK,IMG} = 0.012 \times 15 = 0.18s$
+
+### Calcolo delle utilizzazioni
+
+Usando la _Service Demand Law_ ($U_{i,r} = D_{i,r} \times X_{0,r}$):
+
+* $U_{CPU,HTML} = 0.014 \times 3.9 = 5.46%$
+* $U_{CPU,IMG} = 0.038 \times 0.29 = 1.1%$ (Utilizzazione totale CPU: $6.56%$)
+* $U_{DISK,HTML} = 0.036 \times 3.9 = 14.04%$
+* $U_{DISK,IMG} = 0.18 \times 0.29 = 5.22%$ (Utilizzazione totale disco: $19.26%$)
+
+Se il carico aumentasse di 5 volte, le utilizzazioni diventerebbero: $U_{CPU} = 6.56% \times 5 = 32.8%$ e  $U_{DISK} = 19.26% \times 5 = 96.3%$, moltiplicando le somme su CPU e DISK per 5.
+Il sistema sarebbe al limite della saturazione sul disco.
+
+## Esercitazioni pratiche risolte
+
+### Esercizio 5: Utilizzazione del disco
+
+Dati: $5400$ transazioni in un'ora, tempo di servizio disco $30ms$ ($0.03s$) per visita, $3$ visite per transazione. $X_{0} = \frac{5400}{3600} = 1.5 \text{ tps}$ $X_{DISK} = V_{i} \times X_{0} = 3 \times 1.5 = 4.5 \text{ req/s}$ $U_{DISK} = X_{DISK} \times S_{DISK} = 4.5 \times 0.03 = 13.5%$
+
+### Esercizio 7: Numero medio di accessi
+
+Dati: $60$ minuti, $7200$ richieste, $U_{DISK} = 30%$, $S_{DISK} = 30ms$ ($0.03s$). $X_{0} = \frac{7200}{3600} = 2 \text{ req/s}$ $X_{DISK} = \frac{U_{DISK}}{S_{DISK}} = \frac{0.3}{0.03} = 10 \text{ req/s}$ $V_{DISK} = \frac{X_{DISK}}{X_{0}} = \frac{10}{2} = 5 \text{ visite}$
+
+### Esercizio 9: Throughput e Service Demand
+
+Dati: 1 CPU ($U=32%$), 2 Dischi. DISK 1: $U=60%, V=5, S=30ms$. DISK 2: $V=8, S=25ms$. $X_{DISK1} = \frac{0.6}{0.03} = 20 \text{ req/s}$ $X_{0} = \frac{20}{5} = 4 \text{ req/s}$ $X_{DISK2} = 8 \times 4 = 32 \text{ req/s}$ $U_{DISK2} = 32 \times 0.025 = 80%$ $D_{CPU} = \frac{0.32}{4} = 0.08s$; $D_{DISK1} = 5 \times 0.03 = 0.15s$; $D_{DISK2} = 8 \times 0.025 = 0.2s$
+
+### Esercizio 10: Sistema interattivo
+
+Dati: $M=50$ terminali, $Z=5s$, $U_{DISK}=60%, S_{DISK}=30ms, V_{DISK}=4$. $X_{DISK} = \frac{0.6}{0.03} = 20 \text{ req/s}$ $X_{0} = \frac{20}{4} = 5 \text{ req/s}$ $R = \frac{50}{5} - 5 = 10 - 5 = 5s$
