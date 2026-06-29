@@ -202,6 +202,7 @@ Sistema scalabile = prestazioni non degradano significativamente con l'aumento d
 ## Classi multiple di workload
 
 Serve modello multi-classe quando:
+
 1. Service demand eterogenei
 2. Tipi diversi di workload (online vs batch)
 3. SLO differenziati (es. 1.2s / 2.5s / 8s)
@@ -244,7 +245,7 @@ Workload che cambia natura nel tempo (es. autenticazione: Disconnected → Conne
 QN = collezione di $K$ code interconnesse. Coda/stazione = waiting line + server.
 
 ## Parametri di input
-- **Intensità workload**: λ (classi aperte) o N (classi chiuse).
+- **Intensità workload**: $\lambda$ (classi aperte) o N (classi chiuse).
 - **Service demand** $D_{i,r}$: tempo totale medio che la classe $r$ passa nella risorsa $i$ (di norma indipendente dal carico, con eccezioni).
 
 ## Tipi di classi
@@ -262,6 +263,7 @@ QN = collezione di $K$ code interconnesse. Coda/stazione = waiting line + server
 
 ## Aggregazione classi
 $λ_{new}$ = somma λ delle classi fuse. $D_{new}$ = media pesata dei demand originali.
+
 Esempio: Medio(λ=0.3) + Complesso(λ=0.2) → λ_new=0.5; $D_{CPU,new}=(0.3/0.5)\times0.3+(0.2/0.5)\times0.45=0.36$
 
 ---
@@ -290,11 +292,11 @@ Con m server: $U_i = \frac{S_i\times X_i}{m}$
 **Service Demand Law**: $D_i = \frac{B_i}{C_0} = \frac{U_i}{X_0} = S_i \times V_i$ ($V_i$ = visite medie alla risorsa i)
 
 **Forced Flow Law**: $X_i = X_0 \times V_i$ → $V_i = X_i/X_0$
-Esempio: $V_2=32/3.8=8.4$, $V_3=36/3.8=9.5$, $V_4=50/3.8=13.2$ visite
 
 **Little's Law**: relazione generale tra N (utenti nel sistema), R (tempo permanenza), X (tasso arrivo/completamento). Valida per ogni "scatola nera" senza creazione/distruzione di clienti.
 
 Forme:
+
 - Solo server: $N_{i,s}=U_i=X_i\times S_i$
 - Centro completo: $N_i = X_i \times R_i$
 - Sola coda: $N_{i,w}=X_i\times W_i$
@@ -305,7 +307,9 @@ Forme:
 # LEGGE DEL TEMPO DI RISPOSTA INTERATTIVO
 
 Sistema con M client, ognuno alterna **think time (Z)** e **response time (R)**.
+
 $\bar{M}$ = utenti in think phase; $\bar{N}$ = utenti in attesa risposta.
+
 $M = \bar{M}+\bar{N}$; per Little: $\bar{M}=X_0\times Z$, $\bar{N}=X_0\times R$
 $$M = X_0(Z+R) \quad\Rightarrow\quad R = \frac{M}{X_0} - Z$$
 
